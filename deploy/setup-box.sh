@@ -81,7 +81,13 @@ else
         echo "# LAN-only test deploy - never commit this file, never echo it to a shared terminal."
         echo
         echo "POSTGRES_USER=dagrofashield"
-        echo "POSTGRES_PASSWORD=$(openssl rand -base64 32)"
+        # hex, not base64: base64 output can contain '/' or '+', which
+        # corrupts the postgresql://user:PASSWORD@host:port/db connection
+        # string it gets embedded into unescaped (docker-compose.yml's
+        # DATABASE_URL) - Prisma fails with "invalid port number in
+        # database URL" the moment the password happens to contain a '/'.
+        # Hex is always URL-safe.
+        echo "POSTGRES_PASSWORD=$(openssl rand -hex 32)"
         echo "POSTGRES_DB=dagrofashield"
         echo
         echo "JWT_ACCESS_SECRET=$(openssl rand -base64 48)"
