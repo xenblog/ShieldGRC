@@ -1,15 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { ControlEffectiveness, RiskStatus, TestResult, TreatmentActionStatus } from '@prisma/client';
+import { AssessmentStatus, ControlEffectiveness, TestResult, TreatmentActionStatus } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { OrgUnitScopeService } from '../../common/org-unit-scope/org-unit-scope.service';
 import { AuthenticatedUser } from '../../common/types/authenticated-user';
-
-const OPEN_RISK_STATUSES: RiskStatus[] = [
-  RiskStatus.IDENTIFIED,
-  RiskStatus.ASSESSED,
-  RiskStatus.MITIGATING,
-  RiskStatus.ACCEPTED,
-];
+import { OPEN_RISK_STATUSES } from '../../common/risk-status/open-risk-statuses';
 
 /**
  * Every method returns one independent "tile" payload. Dashboards assemble
@@ -107,6 +101,24 @@ export class DashboardsService {
     });
   }
 
+  private async assessmentProgressStatus(user: AuthenticatedUser) {
+    const assessments = await this.prisma.riskAssessment.findMany({
+      where: this.scope.readWhere(user),
+      select: { status: true, dueDate: true },
+    });
+    const now = new Date();
+    let onTrack = 0;
+    let overdue = 0;
+    for (const a of assessments) {
+      const isOverdue =
+        a.status !== AssessmentStatus.COMPLETED &&
+        (a.status === AssessmentStatus.OVERDUE || a.dueDate < now);
+      if (isOverdue) overdue += 1;
+      else onTrack += 1;
+    }
+    return { onTrack, overdue, total: assessments.length };
+  }
+
   private async overdueRiskReviews(user: AuthenticatedUser) {
     return this.prisma.risk.findMany({
       where: {
@@ -161,7 +173,7 @@ export class DashboardsService {
   }
 
   async getExecutiveTiles(user: AuthenticatedUser) {
-    const [openRisksByBand, riskTrend, heatMapByOrgUnit, topRisks, testPassRate, frameworkCoverage] =
+    const [openRisksByBand, riskTrend, heatMapByOrgUnit, topRisks, testPassRate, frameworkCoverage, assessmentProgressStatus] =
       await Promise.all([
         this.openRisksByBand(user),
         this.riskTrend(user),
@@ -169,6 +181,7 @@ export class DashboardsService {
         this.topOpenRisks(user),
         this.controlTestPassRate(user),
         this.frameworkCoverage(user),
+        this.assessmentProgressStatus(user),
       ]);
 
     return {
@@ -178,6 +191,7 @@ export class DashboardsService {
       topOpenRisks: topRisks,
       controlTestPassRate: testPassRate,
       frameworkCoverage,
+      assessmentProgressStatus,
     };
   }
 

@@ -13,6 +13,7 @@ interface ExecutiveTiles {
   topOpenRisks: { id: string; title: string; score: number }[];
   controlTestPassRate: { total: number; passed: number; passRatePercent: number };
   frameworkCoverage: { frameworkId: string; name: string; coveragePercent: number }[];
+  assessmentProgressStatus: { onTrack: number; overdue: number; total: number };
 }
 
 interface OperationalTiles extends ExecutiveTiles {
@@ -60,6 +61,13 @@ export default function DashboardsPage() {
           </div>
         </Tile>
 
+        <Tile title="Assessment progress">
+          <p className="text-3xl font-bold text-[var(--dgs-primary)]">{data.assessmentProgressStatus.onTrack}</p>
+          <p className="text-xs text-[var(--dgs-text-muted)]">
+            on track · {data.assessmentProgressStatus.overdue} overdue of {data.assessmentProgressStatus.total} total
+          </p>
+        </Tile>
+
         <Tile title="Control test pass rate">
           <p className="text-3xl font-bold text-[var(--dgs-primary)]">{data.controlTestPassRate.passRatePercent}%</p>
           <p className="text-xs text-[var(--dgs-text-muted)]">
@@ -79,12 +87,12 @@ export default function DashboardsPage() {
         </Tile>
 
         <Tile title="Risk trend (new risks / month)">
-          <div className="flex items-end gap-1" style={{ height: 60 }}>
+          <div className="flex items-end gap-1 overflow-hidden" style={{ height: 60 }}>
             {data.riskTrend.map((m) => (
               <div key={m.month} className="flex flex-1 flex-col items-center justify-end gap-1">
                 <div
                   className="w-full rounded-t bg-[var(--dgs-primary)]"
-                  style={{ height: Math.max(4, m.newRisksCount * 10) }}
+                  style={{ height: Math.min(56, Math.max(4, m.newRisksCount * 10)) }}
                   title={`${m.month}: ${m.newRisksCount}`}
                 />
                 <span className="text-[10px] text-[var(--dgs-text-muted)]">{m.month.slice(5)}</span>

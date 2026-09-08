@@ -167,25 +167,75 @@ function RiskGroupSection({ group }: { group: RiskGroup }) {
   );
 }
 
+type SortKey = 'title' | 'orgUnit' | 'owner' | 'status' | 'inherent' | 'residual' | 'nextReviewDate';
+
+const SORT_ACCESSORS: Record<SortKey, (r: Risk) => string | number> = {
+  title: (r) => r.title.toLowerCase(),
+  orgUnit: (r) => r.orgUnit?.name ?? '',
+  owner: (r) => r.owner?.name ?? '',
+  status: (r) => r.status,
+  inherent: (r) => r.inherentScore,
+  residual: (r) => r.residualScore ?? -1,
+  nextReviewDate: (r) => (r.nextReviewDate ? new Date(r.nextReviewDate).getTime() : Number.POSITIVE_INFINITY),
+};
+
+const SORT_HEADERS: { key: SortKey; label: string }[] = [
+  { key: 'title', label: 'Title' },
+  { key: 'orgUnit', label: 'Org Unit' },
+  { key: 'owner', label: 'Owner' },
+  { key: 'status', label: 'Status' },
+  { key: 'inherent', label: 'Inherent' },
+  { key: 'residual', label: 'Residual' },
+  { key: 'nextReviewDate', label: 'Next review' },
+];
+
 function RiskTable({ risks }: { risks: Risk[] }) {
+  const [sortKey, setSortKey] = useState<SortKey | null>(null);
+  const [sortDir, setSortDir] = useState<1 | -1>(1);
+
   if (risks.length === 0) {
     return <p className="p-4 text-sm text-gray-400">No risks match the current filters.</p>;
   }
+
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((prev) => (prev === 1 ? -1 : 1));
+    } else {
+      setSortKey(key);
+      setSortDir(1);
+    }
+  }
+
+  const sortedRisks = sortKey
+    ? [...risks].sort((a, b) => {
+        const accessor = SORT_ACCESSORS[sortKey];
+        const av = accessor(a);
+        const bv = accessor(b);
+        if (av < bv) return -1 * sortDir;
+        if (av > bv) return 1 * sortDir;
+        return 0;
+      })
+    : risks;
+
   return (
     <table className="dgs-table w-full">
       <thead>
         <tr>
-          <th>Title</th>
-          <th>Org Unit</th>
-          <th>Owner</th>
-          <th>Status</th>
-          <th>Inherent</th>
-          <th>Residual</th>
-          <th>Next review</th>
+          {SORT_HEADERS.map((h) => (
+            <th key={h.key}>
+              <button
+                onClick={() => toggleSort(h.key)}
+                className="flex items-center gap-1 font-semibold uppercase tracking-wide text-gray-500 hover:text-gray-800"
+              >
+                {h.label}
+                {sortKey === h.key && <span>{sortDir === 1 ? '▲' : '▼'}</span>}
+              </button>
+            </th>
+          ))}
         </tr>
       </thead>
       <tbody>
-        {risks.map((r) => (
+        {sortedRisks.map((r) => (
           <tr key={r.id}>
             <td>
               <Link href={`/risk-register/${r.id}`} className="hover:underline">

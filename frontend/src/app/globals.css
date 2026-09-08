@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --dgs-primary: #1d4ed8;
+  --dgs-primary-hover: #1e40af;
+  --dgs-border: #e5e7eb;
+  --dgs-text-muted: #6b7280;
+  --dgs-bg: #f8fafc;
+}
+
+body {
+  background: var(--dgs-bg);
+  color: #111827;
+}
+
+@layer components {
+  .dgs-card {
+    @apply rounded-lg border bg-white;
+    border-color: var(--dgs-border);
+  }
+
+  .dgs-table {
+    @apply text-sm;
+  }
+
+  .dgs-table th {
+    @apply border-b px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-500;
+    border-color: var(--dgs-border);
+  }
+
+  .dgs-table td {
+    @apply border-b px-3 py-2 align-middle;
+    border-color: var(--dgs-border);
+  }
+
+  .dgs-table tbody tr:hover {
+    @apply bg-gray-50;
+  }
+}

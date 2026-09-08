@@ -84,7 +84,7 @@ export class EntraAuthProvider implements RedirectAuthProvider {
     const tokenSet = await client.callback(redirectUri, { code, state }, { state });
     const claims = tokenSet.claims();
 
-    const azureAdObjectId = claims.oid ?? claims.sub;
+    const azureAdObjectId = (claims.oid ?? claims.sub) as string | undefined;
     const email = (claims.email as string | undefined)?.toLowerCase() ?? (claims.preferred_username as string | undefined)?.toLowerCase();
     const name = (claims.name as string | undefined) ?? email ?? 'Unknown user';
 
