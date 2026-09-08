@@ -3,14 +3,20 @@
 # One-time setup for DagrofaShield git-push-to-deploy, run ON THE BOX
 # (192.168.86.163) as the `home` user - not from your local machine.
 #
-# Deploys under /opt, which `home` does not own by default. This script
-# NEVER calls sudo itself - it expects the three directories below to
-# already exist and be owned by `home` before you run it:
+# Everything lives under /opt/dagrofashield/ - `home` already owns /opt
+# itself (home:root, mode 755) on this box, so creating a subdirectory
+# there needs no sudo. This script never calls sudo, for anything: if
+# /opt turns out not to be writable by `home` after all, it stops and
+# reports that rather than guessing at how to get access.
 #
-#   sudo mkdir -p /opt/dagrofashield.git /opt/dagrofashield-deploy /opt/dagrofashield-secrets
-#   sudo chown -R home:home /opt/dagrofashield.git /opt/dagrofashield-deploy /opt/dagrofashield-secrets
+# This box also runs several unrelated personal services (Home Assistant,
+# Node-RED, Zigbee2MQTT, Mosquitto, MariaDB, InfluxDB, code-server,
+# Duplicati, Portainer, ...) under their own /opt/<service>/ directories,
+# tied together by a separate /opt/docker-compose.yaml and /opt/.env.
+# This script never touches those, and never runs anything from /opt
+# itself - only from /opt/dagrofashield/deploy.
 #
-# Usage (after the above):
+# Usage:
 #   scp -r deploy home@192.168.86.163:~/dagrofashield-setup
 #   ssh home@192.168.86.163
 #   cd ~/dagrofashield-setup && ./setup-box.sh
@@ -22,29 +28,31 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-GIT_DIR="/opt/dagrofashield.git"
-WORK_TREE="/opt/dagrofashield-deploy"
-SECRETS_DIR="/opt/dagrofashield-secrets"
-ENV_FILE="$SECRETS_DIR/.env"
+BOX_ROOT="/opt/dagrofashield"
+GIT_DIR="$BOX_ROOT/dagrofashield.git"
+WORK_TREE="$BOX_ROOT/deploy"
+ENV_FILE="$BOX_ROOT/.env"
 
-echo "== Checking /opt directories are pre-created and owned by $(whoami) =="
-for dir in "$GIT_DIR" "$WORK_TREE" "$SECRETS_DIR"; do
-    if [ ! -d "$dir" ] || [ ! -w "$dir" ]; then
-        echo "ERROR: $dir does not exist or is not writable by '$(whoami)'." >&2
-        echo "This script never calls sudo itself. Run this once first, then re-run:" >&2
-        echo "  sudo mkdir -p $GIT_DIR $WORK_TREE $SECRETS_DIR" >&2
-        echo "  sudo chown -R $(whoami):$(whoami) $GIT_DIR $WORK_TREE $SECRETS_DIR" >&2
-        exit 1
-    fi
-done
-echo "OK: all three /opt paths exist and are writable by $(whoami)."
+echo "== Creating $BOX_ROOT =="
+if ! mkdir -p "$BOX_ROOT" 2>/dev/null; then
+    echo "ERROR: cannot create $BOX_ROOT - '$(whoami)' does not have write access to /opt." >&2
+    echo "This script never calls sudo itself. This box is expected to have /opt" >&2
+    echo "owned by home:root, mode 755 - if that's not the case, fix ownership" >&2
+    echo "(as whoever has the access to do so) before re-running this script." >&2
+    exit 1
+fi
+if [ ! -w "$BOX_ROOT" ]; then
+    echo "ERROR: $BOX_ROOT exists but is not writable by '$(whoami)'." >&2
+    exit 1
+fi
+echo "OK: $BOX_ROOT exists and is writable by $(whoami)."
 
 echo "== Checking Docker access (no sudo) =="
 if ! docker ps >/dev/null 2>&1; then
     echo "ERROR: 'docker ps' failed for user '$(whoami)' without sudo." >&2
     echo "This setup refuses to silently prefix every docker command with sudo." >&2
-    echo "Add '$(whoami)' to the docker group (sudo usermod -aG docker $(whoami)," >&2
-    echo "then log out/in) and re-run this script." >&2
+    echo "'$(whoami)' is expected to already be in the docker group on this box -" >&2
+    echo "if not, that needs fixing (by someone with the access to do so) first." >&2
     exit 1
 fi
 if ! docker compose version >/dev/null 2>&1; then
@@ -57,18 +65,13 @@ echo "== Bare repo: $GIT_DIR =="
 if [ -f "$GIT_DIR/HEAD" ]; then
     echo "Already initialized, leaving as-is."
 else
-    # $GIT_DIR already exists (pre-created above) - git init --bare
-    # initializes into it in place, it does not need to create the dir itself.
     git init --bare "$GIT_DIR"
 fi
 
 echo "== Deploy worktree: $WORK_TREE =="
 mkdir -p "$WORK_TREE"
-touch "$WORK_TREE/deploy.log"
 
 echo "== Secrets: $ENV_FILE =="
-mkdir -p "$SECRETS_DIR"
-chmod 700 "$SECRETS_DIR"
 if [ -f "$ENV_FILE" ]; then
     echo "Already exists - leaving untouched (not rotating an existing DB password)."
 else
@@ -90,8 +93,8 @@ else
         echo
         echo "# Entra ID / OIDC left blank on purpose: the app boots with Entra"
         echo "# disabled and falls back to the local seeded admin account only."
-        echo "# See README.md 'Important: this environment could not run Node/npm/Docker'"
-        echo "# and backend/src/common/config/env.validation.ts."
+        echo "# See backend/src/common/config/env.validation.ts - Entra vars are"
+        echo "# intentionally not required."
         echo "ENTRA_TENANT_ID="
         echo "ENTRA_CLIENT_ID="
         echo "ENTRA_CLIENT_SECRET="
@@ -112,9 +115,9 @@ cat <<EOF
 Setup complete.
 
 Next, from your LOCAL machine:
-  git remote add box ssh://home@192.168.86.163/opt/dagrofashield.git
+  git remote add box ssh://home@192.168.86.163/opt/dagrofashield/dagrofashield.git
   git push box main
 
 Then tail the deploy log on the box:
-  tail -f $WORK_TREE/deploy.log
+  tail -f $BOX_ROOT/deploy.log
 EOF
