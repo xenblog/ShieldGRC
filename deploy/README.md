@@ -23,7 +23,23 @@ If either fails, stop - don't work around it (no password auth, no sudo
 prefixing, no SSH config changes). Fix key auth / group membership on the
 box first.
 
-**1. Copy this `deploy/` directory to the box and run the setup script:**
+**1. Pre-create the `/opt` directories, once, with sudo:**
+
+This deployment lives under `/opt` rather than `home`'s own home directory.
+`/opt` is root-owned by default, so `home` needs these three directories
+created and handed to it before anything else runs. Nothing past this step
+ever calls `sudo` - `setup-box.sh` and the `post-receive` hook both refuse
+to run if any of these three don't already exist and aren't writable by
+`home`, rather than guessing at how to get access.
+
+```bash
+ssh home@192.168.86.163 '
+  sudo mkdir -p /opt/dagrofashield.git /opt/dagrofashield-deploy /opt/dagrofashield-secrets
+  sudo chown -R home:home /opt/dagrofashield.git /opt/dagrofashield-deploy /opt/dagrofashield-secrets
+'
+```
+
+**2. Copy this `deploy/` directory to the box and run the setup script:**
 
 ```bash
 scp -r deploy home@192.168.86.163:~/dagrofashield-setup
@@ -33,9 +49,9 @@ ssh home@192.168.86.163 'cd ~/dagrofashield-setup && ./setup-box.sh'
 `setup-box.sh` (idempotent, safe to re-run):
 - Re-checks Docker works without sudo (refuses to proceed and tells you
   exactly what to fix otherwise - it never silently adds `sudo`).
-- Creates the bare repo at `~/dagrofashield.git` and the deploy worktree at
-  `~/dagrofashield-deploy` (kept outside the bare repo).
-- Generates `~/dagrofashield-secrets/.env` (mode 600) with a fresh
+- Creates the bare repo at `/opt/dagrofashield.git` and the deploy worktree at
+  `/opt/dagrofashield-deploy` (kept outside the bare repo).
+- Generates `/opt/dagrofashield-secrets/.env` (mode 600) with a fresh
   `POSTGRES_PASSWORD` and `JWT_ACCESS_SECRET` (`openssl rand`), only if one
   doesn't already exist - **it will never overwrite/rotate an existing
   secrets file**, so re-running setup never breaks a running database.
@@ -43,15 +59,15 @@ ssh home@192.168.86.163 'cd ~/dagrofashield-setup && ./setup-box.sh'
   disabled and falls back to the local seeded admin account only (see
   `backend/src/common/config/env.validation.ts` - Entra vars are
   intentionally not required).
-- Installs `deploy/post-receive` as `~/dagrofashield.git/hooks/post-receive`.
+- Installs `deploy/post-receive` as `/opt/dagrofashield.git/hooks/post-receive`.
 
 Nothing in this step touches a docker volume, and the generated secrets are
 never printed to the terminal.
 
-**2. Add the remote and do the first deploy, from your local machine:**
+**3. Add the remote and do the first deploy, from your local machine:**
 
 ```bash
-git remote add box ssh://home@192.168.86.163/~/dagrofashield.git
+git remote add box ssh://home@192.168.86.163/opt/dagrofashield.git
 git push box main
 ```
 
@@ -59,7 +75,7 @@ The hook (`deploy/post-receive`, see below for exactly what it does) builds,
 tests, and - only if that passes - starts the stack and applies the Prisma
 migration that ships in this repo (`backend/prisma/migrations/`).
 
-**3. Seed demo data (one-time, manual, not part of the automated hook):**
+**4. Seed demo data (one-time, manual, not part of the automated hook):**
 
 There is no "seed on deploy" flag in this codebase - `prisma/seed.ts` mostly
 uses `.create()`, not `.upsert()` (risks, assessments, controls, control
@@ -68,7 +84,7 @@ indefinitely. It's meant to run once:
 
 ```bash
 ssh home@192.168.86.163 \
-  'cd ~/dagrofashield-deploy && docker compose --env-file ~/dagrofashield-secrets/.env -f docker-compose.yml -f docker-compose.override.yml exec -T backend npm run prisma:seed'
+  'cd /opt/dagrofashield-deploy && docker compose --env-file /opt/dagrofashield-secrets/.env -f docker-compose.yml -f docker-compose.override.yml exec -T backend npm run prisma:seed'
 ```
 
 This seeds org units, categories, example users, ~15 example risks,
@@ -79,13 +95,13 @@ account emails; **every seeded account shares the password
 this repo, not a secret this setup generated). Sign in as
 `admin@dagrofa.dk`. Rotate these before the box holds anything real.
 
-**4. Verify:**
+**5. Verify:**
 
 ```bash
 ssh home@192.168.86.163 'curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3000'
 ssh home@192.168.86.163 \
-  'docker compose --env-file ~/dagrofashield-secrets/.env -f ~/dagrofashield-deploy/docker-compose.yml -f ~/dagrofashield-deploy/docker-compose.override.yml -p dagrofashield-deploy ps'
-tail -f ~/dagrofashield-deploy/deploy.log   # (on the box)
+  'docker compose --env-file /opt/dagrofashield-secrets/.env -f /opt/dagrofashield-deploy/docker-compose.yml -f /opt/dagrofashield-deploy/docker-compose.override.yml -p dagrofashield-deploy ps'
+tail -f /opt/dagrofashield-deploy/deploy.log   # (on the box)
 ```
 
 - `curl` should print `200`.
@@ -103,7 +119,7 @@ git push box main
 That's it. Watch the push output - a failed build or test prints
 `DEPLOY FAILED: ...` and a non-zero exit, and **whatever was already
 running is left completely untouched**. Full output (not just the summary
-line) is in `~/dagrofashield-deploy/deploy.log` on the box.
+line) is in `/opt/dagrofashield-deploy/deploy.log` on the box.
 
 New Prisma migration in this repo? It's applied automatically
 (`prisma migrate deploy`, non-interactive/production-safe) after `up -d` on
@@ -113,7 +129,7 @@ every push that includes one - nothing extra to run.
 
 On a push to `main`:
 
-1. `git checkout -f <new commit>` into `~/dagrofashield-deploy`.
+1. `git checkout -f <new commit>` into `/opt/dagrofashield-deploy`.
 2. `docker build --target build ./backend` (the Dockerfile's intermediate
    stage - has source + devDependencies, unlike the slim runtime image) and
    `npm test` in it - the backend's Jest **unit** suite (scoring logic, RBAC
@@ -139,9 +155,9 @@ On a push to `main`:
 4. Appends a timestamped entry to `deploy.log` either way.
 
 Every `docker compose` call the hook makes uses
-`--env-file ~/dagrofashield-secrets/.env` - the base `docker-compose.yml`
+`--env-file /opt/dagrofashield-secrets/.env` - the base `docker-compose.yml`
 already reads `POSTGRES_PASSWORD`, `JWT_ACCESS_SECRET`, `FRONTEND_ORIGIN`,
-etc. via `${VAR}` interpolation, so this is what actually gets the step-1
+etc. via `${VAR}` interpolation, so this is what actually gets the step-2
 secrets into the containers (an `env_file:` block in the override would
 only inject vars into the container's own runtime environment - it
 wouldn't participate in that `${VAR}` interpolation at all).
@@ -154,13 +170,13 @@ Never run by the hook, on success or failure: `docker compose down`,
 
 ```bash
 ssh home@192.168.86.163
-cd ~/dagrofashield-deploy
+cd /opt/dagrofashield-deploy
 
 # live logs
-docker compose --env-file ~/dagrofashield-secrets/.env -f docker-compose.yml -f docker-compose.override.yml logs -f
+docker compose --env-file /opt/dagrofashield-secrets/.env -f docker-compose.yml -f docker-compose.override.yml logs -f
 
 # tear the stack down (containers only - named volumes survive `down` without -v)
-docker compose --env-file ~/dagrofashield-secrets/.env -f docker-compose.yml -f docker-compose.override.yml down
+docker compose --env-file /opt/dagrofashield-secrets/.env -f docker-compose.yml -f docker-compose.override.yml down
 
 # deploy history
 cat deploy.log

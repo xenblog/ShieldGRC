@@ -1,7 +1,7 @@
 # Reference only - NOT read by anything.
 #
 # The post-receive hook (deploy/post-receive) writes the real
-# docker-compose.override.yml fresh into ~/dagrofashield-deploy on every
+# docker-compose.override.yml fresh into /opt/dagrofashield-deploy on every
 # deploy, so it can never go stale or get wiped by `git checkout -f`. Do
 # not copy this file onto the box by hand.
 #
@@ -9,7 +9,7 @@
 # no host port mapping for backend/postgres (nothing to remove), and
 # backend/postgres already read their config via ${VAR} interpolation from
 # docker-compose.yml - the hook supplies that by invoking `docker compose`
-# with `--env-file ~/dagrofashield-secrets/.env` rather than by adding an
+# with `--env-file /opt/dagrofashield-secrets/.env` rather than by adding an
 # env_file: block here. nginx is excluded by only ever starting
 # "postgres backend frontend" explicitly, not by anything in this file.
 services:

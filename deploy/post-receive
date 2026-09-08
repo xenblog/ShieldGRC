@@ -2,7 +2,7 @@
 #
 # git-push-to-deploy hook for DagrofaShield (LAN-only test box).
 #
-# Installed at: ~/dagrofashield.git/hooks/post-receive (must be executable)
+# Installed at: /opt/dagrofashield.git/hooks/post-receive (must be executable)
 # Lives outside the app repo on purpose: this file is the operator's copy,
 # installed onto the box by deploy/setup-box.sh. It is not read from the
 # checked-out worktree at deploy time.
@@ -30,11 +30,11 @@ set -o pipefail
 # can find docker regardless of how it was installed.
 export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
 
-GIT_DIR="$HOME/dagrofashield.git"
-WORK_TREE="$HOME/dagrofashield-deploy"
-ENV_FILE="$HOME/dagrofashield-secrets/.env"
+GIT_DIR="/opt/dagrofashield.git"
+WORK_TREE="/opt/dagrofashield-deploy"
+ENV_FILE="/opt/dagrofashield-secrets/.env"
 LOG_FILE="$WORK_TREE/deploy.log"
-LOCK_FILE="$HOME/dagrofashield.git/.deploy.lock"
+LOCK_FILE="/opt/dagrofashield.git/.deploy.lock"
 FRONTEND_HOST_PORT=3000
 TARGET_BRANCH="refs/heads/main"
 

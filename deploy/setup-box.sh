@@ -3,7 +3,14 @@
 # One-time setup for DagrofaShield git-push-to-deploy, run ON THE BOX
 # (192.168.86.163) as the `home` user - not from your local machine.
 #
-# Usage:
+# Deploys under /opt, which `home` does not own by default. This script
+# NEVER calls sudo itself - it expects the three directories below to
+# already exist and be owned by `home` before you run it:
+#
+#   sudo mkdir -p /opt/dagrofashield.git /opt/dagrofashield-deploy /opt/dagrofashield-secrets
+#   sudo chown -R home:home /opt/dagrofashield.git /opt/dagrofashield-deploy /opt/dagrofashield-secrets
+#
+# Usage (after the above):
 #   scp -r deploy home@192.168.86.163:~/dagrofashield-setup
 #   ssh home@192.168.86.163
 #   cd ~/dagrofashield-setup && ./setup-box.sh
@@ -15,10 +22,22 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-GIT_DIR="$HOME/dagrofashield.git"
-WORK_TREE="$HOME/dagrofashield-deploy"
-SECRETS_DIR="$HOME/dagrofashield-secrets"
+GIT_DIR="/opt/dagrofashield.git"
+WORK_TREE="/opt/dagrofashield-deploy"
+SECRETS_DIR="/opt/dagrofashield-secrets"
 ENV_FILE="$SECRETS_DIR/.env"
+
+echo "== Checking /opt directories are pre-created and owned by $(whoami) =="
+for dir in "$GIT_DIR" "$WORK_TREE" "$SECRETS_DIR"; do
+    if [ ! -d "$dir" ] || [ ! -w "$dir" ]; then
+        echo "ERROR: $dir does not exist or is not writable by '$(whoami)'." >&2
+        echo "This script never calls sudo itself. Run this once first, then re-run:" >&2
+        echo "  sudo mkdir -p $GIT_DIR $WORK_TREE $SECRETS_DIR" >&2
+        echo "  sudo chown -R $(whoami):$(whoami) $GIT_DIR $WORK_TREE $SECRETS_DIR" >&2
+        exit 1
+    fi
+done
+echo "OK: all three /opt paths exist and are writable by $(whoami)."
 
 echo "== Checking Docker access (no sudo) =="
 if ! docker ps >/dev/null 2>&1; then
@@ -35,9 +54,11 @@ fi
 echo "OK: docker + docker compose usable without sudo."
 
 echo "== Bare repo: $GIT_DIR =="
-if [ -d "$GIT_DIR" ]; then
-    echo "Already exists, leaving as-is."
+if [ -f "$GIT_DIR/HEAD" ]; then
+    echo "Already initialized, leaving as-is."
 else
+    # $GIT_DIR already exists (pre-created above) - git init --bare
+    # initializes into it in place, it does not need to create the dir itself.
     git init --bare "$GIT_DIR"
 fi
 
@@ -91,7 +112,7 @@ cat <<EOF
 Setup complete.
 
 Next, from your LOCAL machine:
-  git remote add box ssh://home@192.168.86.163/~/dagrofashield.git
+  git remote add box ssh://home@192.168.86.163/opt/dagrofashield.git
   git push box main
 
 Then tail the deploy log on the box:
