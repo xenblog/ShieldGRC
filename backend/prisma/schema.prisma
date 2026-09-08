@@ -1,0 +1,538 @@
+// DagrofaShield - Prisma schema
+// See /ARCHITECTURE.md for the reasoning behind org-unit scoping, RBAC,
+// audit logging, the category taxonomy, and the EntityLink extension point.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum UserRole {
+  ADMIN
+  RISK_OWNER
+  AUDITOR
+  EXECUTIVE
+}
+
+enum RiskStatus {
+  IDENTIFIED
+  ASSESSED
+  MITIGATING
+  ACCEPTED
+  CLOSED
+}
+
+enum ScoreBand {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum TreatmentStrategy {
+  AVOID
+  REDUCE
+  TRANSFER
+  ACCEPT
+}
+
+enum AssessmentStatus {
+  PLANNED
+  IN_PROGRESS
+  COMPLETED
+  OVERDUE
+}
+
+enum TreatmentActionStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  OVERDUE
+}
+
+enum ControlType {
+  PREVENTIVE
+  DETECTIVE
+  CORRECTIVE
+  COMPENSATING
+}
+
+enum ControlFrequency {
+  CONTINUOUS
+  DAILY
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  ANNUAL
+}
+
+enum ControlEffectiveness {
+  EFFECTIVE
+  PARTIALLY_EFFECTIVE
+  INEFFECTIVE
+  NOT_YET_TESTED
+}
+
+enum TestResult {
+  PASS
+  FAIL
+  PARTIAL
+}
+
+enum TestMethod {
+  INSPECTION
+  WALKTHROUGH
+  REPERFORMANCE
+  AUTOMATED
+}
+
+enum NistCsfFunction {
+  GOVERN
+  IDENTIFY
+  PROTECT
+  DETECT
+  RESPOND
+  RECOVER
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+}
+
+// Discriminator for the generic EntityLink extension point (see ARCHITECTURE.md).
+// Future modules (AI Governance, Supplier Risk) add their own value here without
+// touching the Risk or Control tables.
+enum LinkedEntityType {
+  AI_SYSTEM
+  SUPPLIER
+}
+
+// ---------------------------------------------------------------------------
+// Org Units & Users
+// ---------------------------------------------------------------------------
+
+model OrgUnit {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  code      String?  @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships     UserOrgUnit[]
+  risks           Risk[]
+  assessments     RiskAssessment[]
+  controls        Control[]
+  frameworks      Framework[]
+
+  @@map("org_units")
+}
+
+model User {
+  id             String    @id @default(uuid())
+  email          String    @unique
+  name           String
+  role           UserRole
+  isActive       Boolean   @default(true)
+  // Local auth (seeded dev admin / any locally-provisioned account). Null for
+  // users who only ever authenticate via Entra ID SSO.
+  passwordHash   String?
+  // Set once a user has signed in via Entra ID at least once.
+  azureAdObjectId String?  @unique
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  orgUnits              UserOrgUnit[]
+  ownedRisks            Risk[]                @relation("RiskOwner")
+  ledAssessments        RiskAssessment[]      @relation("AssessmentLead")
+  ownedTreatmentActions TreatmentAction[]     @relation("TreatmentActionOwner")
+  testedControlTests    ControlTest[]         @relation("ControlTester")
+  ownedFrameworks       Framework[]           @relation("FrameworkOwner")
+  uploadedEvidence      Evidence[]            @relation("EvidenceUploader")
+  auditLogEntries       AuditLog[]            @relation("AuditActor")
+  methodologyVersions   MethodologyVersion[]  @relation("MethodologyAuthor")
+  createdEntityLinks    EntityLink[]          @relation("EntityLinkCreator")
+  refreshTokens         RefreshToken[]
+
+  @@map("users")
+}
+
+// A user can belong to one or more org units. Role is a single global
+// attribute on the user (see ARCHITECTURE.md for why); this table only
+// captures *which* org units a Risk Owner / Auditor is scoped to.
+model UserOrgUnit {
+  userId    String
+  orgUnitId String
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orgUnit OrgUnit @relation(fields: [orgUnitId], references: [id], onDelete: Cascade)
+
+  @@id([userId, orgUnitId])
+  @@map("user_org_units")
+}
+
+// Opaque, hashed refresh tokens for session rotation (see auth module).
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("refresh_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// Category taxonomy (configurable, admin-editable) + fixed NIST CSF tag
+// ---------------------------------------------------------------------------
+
+// Primary category taxonomy. Used as Risk.category and as Control.domain -
+// same underlying list so risks and controls can be cross-referenced later.
+model Category {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  risks    Risk[]
+  controls Control[]
+
+  @@map("categories")
+}
+
+// ---------------------------------------------------------------------------
+// Risk Register
+// ---------------------------------------------------------------------------
+
+model Risk {
+  id          String   @id @default(uuid())
+  title       String
+  description String
+
+  categoryId       String
+  category         Category         @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  nistCsfFunction  NistCsfFunction?
+
+  orgUnitId String
+  orgUnit   OrgUnit @relation(fields: [orgUnitId], references: [id], onDelete: Restrict)
+
+  ownerId String
+  owner   User   @relation("RiskOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+
+  status RiskStatus @default(IDENTIFIED)
+
+  likelihood     Int // 1-5
+  impact         Int // 1-5
+  inherentScore  Int // likelihood * impact, 1-25 - denormalized for fast filtering/sorting
+  inherentBand   ScoreBand
+
+  treatmentStrategy TreatmentStrategy?
+  treatmentNote     String?
+
+  residualLikelihood Int?
+  residualImpact     Int?
+  residualScore      Int?
+  residualBand       ScoreBand?
+
+  notes          String?
+  nextReviewDate DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assessmentLinks  AssessmentRisk[]
+  treatmentActions TreatmentAction[]
+  entityLinks      EntityLink[]
+
+  @@index([orgUnitId])
+  @@index([categoryId])
+  @@index([status])
+  @@index([inherentBand])
+  @@index([residualBand])
+  @@index([ownerId])
+  @@map("risks")
+}
+
+// ---------------------------------------------------------------------------
+// Risk Assessment
+// ---------------------------------------------------------------------------
+
+model RiskAssessment {
+  id    String @id @default(uuid())
+  name  String
+  scope String
+
+  orgUnitId String
+  orgUnit   OrgUnit @relation(fields: [orgUnitId], references: [id], onDelete: Restrict)
+
+  leadAssessorId String
+  leadAssessor   User   @relation("AssessmentLead", fields: [leadAssessorId], references: [id], onDelete: Restrict)
+
+  startDate DateTime
+  dueDate   DateTime
+  status    AssessmentStatus @default(PLANNED)
+
+  // Auto-computed from the share of linked Treatment Actions marked COMPLETED,
+  // unless progressOverride is set, in which case progressManualValue wins.
+  progressPercent      Int     @default(0)
+  progressOverride     Boolean @default(false)
+  progressManualValue  Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  linkedRisks      AssessmentRisk[]
+  treatmentActions TreatmentAction[]
+
+  @@index([orgUnitId])
+  @@index([status])
+  @@map("risk_assessments")
+}
+
+model AssessmentRisk {
+  assessmentId String
+  riskId       String
+  createdAt    DateTime @default(now())
+
+  assessment RiskAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  risk       Risk           @relation(fields: [riskId], references: [id], onDelete: Cascade)
+
+  @@id([assessmentId, riskId])
+  @@map("assessment_risks")
+}
+
+model TreatmentAction {
+  id          String @id @default(uuid())
+  description String
+
+  riskId String
+  risk   Risk   @relation(fields: [riskId], references: [id], onDelete: Cascade)
+
+  assessmentId String?
+  assessment   RiskAssessment? @relation(fields: [assessmentId], references: [id], onDelete: SetNull)
+
+  ownerId String
+  owner   User   @relation("TreatmentActionOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+
+  status  TreatmentActionStatus @default(NOT_STARTED)
+  dueDate DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([riskId])
+  @@index([assessmentId])
+  @@index([ownerId])
+  @@index([status])
+  @@map("treatment_actions")
+}
+
+// Versioned rich-text reference page. Admins create new versions; everyone
+// reads the current one. Not modeled as structured/transactional data.
+model MethodologyVersion {
+  id          String   @id @default(uuid())
+  version     Int
+  contentHtml String
+  isCurrent   Boolean  @default(false)
+  authorId    String
+  author      User     @relation("MethodologyAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  createdAt   DateTime @default(now())
+
+  @@unique([version])
+  @@map("methodology_versions")
+}
+
+// ---------------------------------------------------------------------------
+// Control Library
+// ---------------------------------------------------------------------------
+
+model Control {
+  id   String @id @default(uuid())
+  code String @unique // e.g. "CTL-014"
+  name String
+
+  domainCategoryId String
+  domainCategory   Category @relation(fields: [domainCategoryId], references: [id], onDelete: Restrict)
+
+  nistCsfFunction NistCsfFunction?
+
+  orgUnitId String
+  orgUnit   OrgUnit @relation(fields: [orgUnitId], references: [id], onDelete: Restrict)
+
+  type      ControlType
+  frequency ControlFrequency
+
+  // Denormalized from the latest ControlTest for this control - recomputed
+  // every time a test is created/updated (see ControlsService).
+  effectiveness ControlEffectiveness @default(NOT_YET_TESTED)
+  lastTestedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  frameworkLinks ControlFramework[]
+  tests          ControlTest[]
+  entityLinks    EntityLink[]
+
+  @@index([orgUnitId])
+  @@index([domainCategoryId])
+  @@index([type])
+  @@index([effectiveness])
+  @@map("controls")
+}
+
+// ---------------------------------------------------------------------------
+// Compliance Frameworks
+// ---------------------------------------------------------------------------
+
+model Framework {
+  id          String  @id @default(uuid())
+  name        String  @unique
+  description String
+
+  orgUnitId String
+  orgUnit   OrgUnit @relation(fields: [orgUnitId], references: [id], onDelete: Restrict)
+
+  ownerId String
+  owner   User   @relation("FrameworkOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  controlLinks ControlFramework[]
+
+  @@map("frameworks")
+}
+
+model ControlFramework {
+  controlId   String
+  frameworkId String
+  createdAt   DateTime @default(now())
+
+  control   Control   @relation(fields: [controlId], references: [id], onDelete: Cascade)
+  framework Framework @relation(fields: [frameworkId], references: [id], onDelete: Cascade)
+
+  @@id([controlId, frameworkId])
+  @@map("control_frameworks")
+}
+
+// ---------------------------------------------------------------------------
+// Control Testing
+// ---------------------------------------------------------------------------
+
+model ControlTest {
+  id String @id @default(uuid())
+
+  controlId String
+  control   Control @relation(fields: [controlId], references: [id], onDelete: Cascade)
+
+  result         TestResult
+  testMethod     TestMethod
+  testerId       String
+  tester         User       @relation("ControlTester", fields: [testerId], references: [id], onDelete: Restrict)
+  cycle          String // e.g. "Q3 2026"
+  testedDate     DateTime
+  dueDate        DateTime // next test due date
+  exceptionNotes String? // required (validated at DTO level) when result is FAIL or PARTIAL
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  evidence Evidence[]
+
+  @@index([controlId])
+  @@index([testerId])
+  @@index([result])
+  @@index([cycle])
+  @@map("control_tests")
+}
+
+// Evidence files are append-only per ControlTest: editing a test never
+// deletes previously uploaded evidence, it only adds new rows.
+model Evidence {
+  id            String   @id @default(uuid())
+  controlTestId String
+  controlTest   ControlTest @relation(fields: [controlTestId], references: [id], onDelete: Cascade)
+
+  filename    String // original filename, sanitized
+  storagePath String // path on disk under the evidence volume, not web-accessible directly
+  mimeType    String
+  sizeBytes   Int
+
+  uploadedById String
+  uploadedBy   User   @relation("EvidenceUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+  uploadedAt   DateTime @default(now())
+
+  @@index([controlTestId])
+  @@map("evidence")
+}
+
+// ---------------------------------------------------------------------------
+// Audit Log (immutable)
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id         String      @id @default(uuid())
+  entityType String // e.g. "Risk", "TreatmentAction", "Control", "ControlTest", "Framework", "RiskAssessment"
+  entityId   String
+  action     AuditAction
+
+  actorId String?
+  actor   User?   @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  beforeData Json?
+  afterData  Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([actorId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Extensibility: generic link from a Risk or a Control to a future entity
+// (AI System for the EU AI Act module, Supplier for the NIS2 module) that
+// does not exist yet. Adding those future tables never requires touching
+// Risk or Control - only new code that writes/reads EntityLink rows with a
+// new LinkedEntityType value.
+// ---------------------------------------------------------------------------
+
+model EntityLink {
+  id String @id @default(uuid())
+
+  riskId    String?
+  risk      Risk?    @relation(fields: [riskId], references: [id], onDelete: Cascade)
+  controlId String?
+  control   Control? @relation(fields: [controlId], references: [id], onDelete: Cascade)
+
+  targetType  LinkedEntityType
+  targetId    String // id of the future AiSystem/Supplier row - no FK yet, table doesn't exist
+  targetLabel String? // cached display name so links render before the target module exists
+
+  createdAt   DateTime @default(now())
+  createdById String
+  createdBy   User     @relation("EntityLinkCreator", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([riskId])
+  @@index([controlId])
+  @@index([targetType, targetId])
+  @@map("entity_links")
+}

@@ -1,0 +1,24 @@
+{
+  "name": "dagrofa-shield",
+  "private": true,
+  "version": "0.1.0",
+  "description": "DagrofaShield - self-hosted GRC platform for IT security, information security and compliance",
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev:backend": "npm run start:dev --workspace backend",
+    "dev:frontend": "npm run dev --workspace frontend",
+    "build": "npm run build --workspace backend && npm run build --workspace frontend",
+    "test:backend": "npm run test --workspace backend",
+    "test:backend:e2e": "npm run test:e2e --workspace backend",
+    "lint": "npm run lint --workspace backend && npm run lint --workspace frontend",
+    "prisma:generate": "npm run prisma:generate --workspace backend",
+    "prisma:migrate": "npm run prisma:migrate --workspace backend",
+    "prisma:seed": "npm run prisma:seed --workspace backend"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
