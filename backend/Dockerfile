@@ -17,7 +17,12 @@ ENV NODE_ENV=production
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
+# prisma/seed.ts imports shared scoring logic from src/ (ts-node, run
+# directly against source via `npm run prisma:seed`, not from dist/ -
+# src/ isn't otherwise needed by the compiled dist/main.js runtime path).
+COPY --from=build /app/src ./src
 COPY package.json ./
+COPY tsconfig.json ./
 
 RUN mkdir -p /data/evidence
 VOLUME ["/data/evidence"]
