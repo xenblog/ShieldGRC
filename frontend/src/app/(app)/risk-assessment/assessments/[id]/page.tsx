@@ -7,9 +7,10 @@ import { useApiGet } from '@/lib/hooks';
 import { api } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
 import { BandBadge } from '@/components/BandBadge';
-import { Risk, RiskAssessmentDetail, TreatmentActionStatus, UserSummary } from '@/lib/types';
+import { AssessmentStatus, Risk, RiskAssessmentDetail, TreatmentActionStatus, UserSummary } from '@/lib/types';
 
 const TA_STATUSES: TreatmentActionStatus[] = ['NOT_STARTED', 'IN_PROGRESS', 'COMPLETED', 'OVERDUE'];
+const ASSESSMENT_STATUSES: AssessmentStatus[] = ['PLANNED', 'IN_PROGRESS', 'UNDER_REVIEW', 'COMPLETED'];
 
 export default function AssessmentDetailPage() {
   const params = useParams<{ id: string }>();
@@ -68,10 +69,20 @@ export default function AssessmentDetailPage() {
     setData(refreshed);
   }
 
+  async function updateAssessmentStatus(status: AssessmentStatus) {
+    const updated = await api.patch<RiskAssessmentDetail>(`/risk-assessments/${params.id}`, { status });
+    setData(updated);
+  }
+
   return (
     <div className="max-w-4xl space-y-6">
       <div>
-        <h1 className="text-xl font-semibold">{assessment.name}</h1>
+        <h1 className="text-xl font-semibold">
+          {assessment.name}
+          {assessment.isOverdue && (
+            <span className="ml-2 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700">Overdue</span>
+          )}
+        </h1>
         <p className="text-sm text-[var(--dgs-text-muted)]">
           {assessment.orgUnit.name} · Lead assessor {assessment.leadAssessor.name}
         </p>
@@ -84,7 +95,21 @@ export default function AssessmentDetailPage() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
         <div className="dgs-card p-4">
           <p className="text-xs font-semibold uppercase text-[var(--dgs-text-muted)]">Status</p>
-          <p className="mt-1 text-sm font-medium">{assessment.status}</p>
+          {canEdit ? (
+            <select
+              value={assessment.status}
+              onChange={(e) => updateAssessmentStatus(e.target.value as AssessmentStatus)}
+              className="mt-1 rounded border px-1 py-0.5 text-sm"
+            >
+              {ASSESSMENT_STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <p className="mt-1 text-sm font-medium">{assessment.status}</p>
+          )}
         </div>
         <div className="dgs-card p-4">
           <p className="text-xs font-semibold uppercase text-[var(--dgs-text-muted)]">Progress</p>

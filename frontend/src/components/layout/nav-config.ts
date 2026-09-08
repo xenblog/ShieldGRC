@@ -20,13 +20,9 @@ export const NAV_ITEMS: NavItem[] = [
   {
     label: 'Risk Management',
     children: [
-      {
-        label: 'Risk Register',
-        children: [
-          { label: 'Risks', href: '/risk-register' },
-          { label: 'Risk Heat Map', href: '/risk-register/heat-map' },
-        ],
-      },
+      // Risk Register renders the list and heat map as one page (see
+      // risk-register/page.tsx), so this is a single link, not a submenu.
+      { label: 'Risk Register', href: '/risk-register' },
       {
         label: 'Risk Assessment',
         children: [

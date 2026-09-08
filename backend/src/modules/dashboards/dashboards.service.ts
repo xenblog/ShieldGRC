@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { AssessmentStatus, ControlEffectiveness, TestResult, TreatmentActionStatus } from '@prisma/client';
+import { ControlEffectiveness, TestResult, TreatmentActionStatus } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { OrgUnitScopeService } from '../../common/org-unit-scope/org-unit-scope.service';
 import { AuthenticatedUser } from '../../common/types/authenticated-user';
@@ -110,9 +110,7 @@ export class DashboardsService {
     let onTrack = 0;
     let overdue = 0;
     for (const a of assessments) {
-      const isOverdue =
-        a.status !== AssessmentStatus.COMPLETED &&
-        (a.status === AssessmentStatus.OVERDUE || a.dueDate < now);
+      const isOverdue = a.status !== 'COMPLETED' && a.dueDate < now;
       if (isOverdue) overdue += 1;
       else onTrack += 1;
     }

@@ -115,6 +115,7 @@ async function main() {
         version: 1,
         isCurrent: true,
         authorId: admin.id,
+        frameworkReference: 'NIST SP 800-30 Rev. 1',
         contentHtml: `
           <h2>Sandsynligheds- og konsekvensskala</h2>
           <p>Alle risici vurderes på en skala fra 1 til 5 for både sandsynlighed og konsekvens:</p>
@@ -128,11 +129,16 @@ async function main() {
           <h2>Scoringsbånd</h2>
           <p>Risikoscore = sandsynlighed × konsekvens (1-25), inddelt i bånd:</p>
           <ul>
-            <li><strong>Low:</strong> 1-5</li>
-            <li><strong>Medium:</strong> 6-10</li>
-            <li><strong>High:</strong> 11-15</li>
-            <li><strong>Critical:</strong> 16-25</li>
+            <li><strong>Low:</strong> &lt; 4</li>
+            <li><strong>Medium:</strong> 4-7</li>
+            <li><strong>High:</strong> 8-14</li>
+            <li><strong>Critical:</strong> &ge; 15</li>
           </ul>
+          <h2>Risikoappetit</h2>
+          <p>Dagrofa accepterer Low- og Medium-risici inden for normal driftsledelse uden yderligere eskalering.
+          High-risici kræver en dokumenteret behandlingsplan og kvartalsvis opfølgning af risikoejeren. Critical-risici
+          eskaleres til koncernsikkerhed og direktionen inden for 5 arbejdsdage og kræver en godkendt behandlingsplan
+          før risikoen kan accepteres som resterende risiko.</p>
           <h2>Vurderingskadence og -proces</h2>
           <p>Risikoregisteret gennemgås løbende af risikoejere og formelt af koncernsikkerhed hvert kvartal.
           Hver risiko skal have en "næste gennemgangsdato"; overskrides denne, flages risikoen som forfalden
@@ -484,7 +490,7 @@ async function main() {
     'Gennemgang af informationssikkerhed og tidlig AI-værktøjsbrug i Foodservice-divisionen.',
     orgFoodservice.id,
     riskOwnerFoodservice.id,
-    AssessmentStatus.COMPLETED,
+    AssessmentStatus.UNDER_REVIEW,
     -90,
     -10,
     ['kryptering', 'koeletransport', 'phishing', 'gdpr-deling'],

@@ -2,7 +2,7 @@ export type UserRole = 'ADMIN' | 'RISK_OWNER' | 'AUDITOR' | 'EXECUTIVE';
 export type RiskStatus = 'IDENTIFIED' | 'ASSESSED' | 'MITIGATING' | 'ACCEPTED' | 'CLOSED';
 export type ScoreBand = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 export type TreatmentStrategy = 'AVOID' | 'REDUCE' | 'TRANSFER' | 'ACCEPT';
-export type AssessmentStatus = 'PLANNED' | 'IN_PROGRESS' | 'COMPLETED' | 'OVERDUE';
+export type AssessmentStatus = 'PLANNED' | 'IN_PROGRESS' | 'UNDER_REVIEW' | 'COMPLETED';
 export type TreatmentActionStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED' | 'OVERDUE';
 export type NistCsfFunction = 'GOVERN' | 'IDENTIFY' | 'PROTECT' | 'DETECT' | 'RESPOND' | 'RECOVER';
 export type AuditAction = 'CREATE' | 'UPDATE' | 'DELETE';
@@ -128,6 +128,7 @@ export interface RiskAssessment {
   progressManualValue: number | null;
   createdAt: string;
   updatedAt: string;
+  isOverdue: boolean;
 }
 
 export interface RiskAssessmentDetail extends RiskAssessment {
@@ -147,6 +148,7 @@ export interface RiskAssessmentDetail extends RiskAssessment {
 export interface MethodologyVersion {
   id: string;
   version: number;
+  frameworkReference: string;
   contentHtml: string;
   isCurrent: boolean;
   authorId: string;

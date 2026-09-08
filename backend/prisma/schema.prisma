@@ -47,8 +47,8 @@ enum TreatmentStrategy {
 enum AssessmentStatus {
   PLANNED
   IN_PROGRESS
+  UNDER_REVIEW
   COMPLETED
-  OVERDUE
 }
 
 enum TreatmentActionStatus {
@@ -346,13 +346,16 @@ model TreatmentAction {
 // Versioned rich-text reference page. Admins create new versions; everyone
 // reads the current one. Not modeled as structured/transactional data.
 model MethodologyVersion {
-  id          String   @id @default(uuid())
-  version     Int
-  contentHtml String
-  isCurrent   Boolean  @default(false)
-  authorId    String
-  author      User     @relation("MethodologyAuthor", fields: [authorId], references: [id], onDelete: Restrict)
-  createdAt   DateTime @default(now())
+  id      String @id @default(uuid())
+  version Int
+  // Named framework/standard this version is aligned to, e.g. "NIST SP 800-30
+  // Rev. 1" - editable per version, never hardcoded in the UI.
+  frameworkReference String
+  contentHtml        String
+  isCurrent          Boolean  @default(false)
+  authorId           String
+  author             User     @relation("MethodologyAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  createdAt          DateTime @default(now())
 
   @@unique([version])
   @@map("methodology_versions")

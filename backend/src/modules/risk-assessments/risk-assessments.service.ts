@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { AuditAction, Prisma } from '@prisma/client';
+import { AssessmentStatus, AuditAction, Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { OrgUnitScopeService } from '../../common/org-unit-scope/org-unit-scope.service';
 import { AuditService } from '../../common/audit/audit.service';
@@ -8,6 +8,14 @@ import { AuthenticatedUser } from '../../common/types/authenticated-user';
 import { CreateAssessmentDto } from './dto/create-assessment.dto';
 import { UpdateAssessmentDto } from './dto/update-assessment.dto';
 import { LinkRisksDto } from './dto/link-risks.dto';
+
+/**
+ * "Overdue" is a derived, visual-only flag (due date passed and status not
+ * Completed) rather than a stored status value - see AssessmentStatus.
+ */
+function computeIsOverdue(assessment: { status: AssessmentStatus; dueDate: Date }): boolean {
+  return assessment.status !== AssessmentStatus.COMPLETED && assessment.dueDate < new Date();
+}
 
 @Injectable()
 export class RiskAssessmentsService {
@@ -25,12 +33,17 @@ export class RiskAssessmentsService {
     } satisfies Prisma.RiskAssessmentInclude;
   }
 
+  private withComputed<T extends { status: AssessmentStatus; dueDate: Date }>(assessment: T) {
+    return { ...assessment, isOverdue: computeIsOverdue(assessment) };
+  }
+
   async findAll(user: AuthenticatedUser) {
-    return this.prisma.riskAssessment.findMany({
+    const assessments = await this.prisma.riskAssessment.findMany({
       where: this.scope.readWhere(user),
       include: this.commonInclude(),
       orderBy: { createdAt: 'desc' },
     });
+    return assessments.map((a) => this.withComputed(a));
   }
 
   async findOne(id: string, user: AuthenticatedUser) {
@@ -51,7 +64,7 @@ export class RiskAssessmentsService {
     const auditHistory = await this.audit.findForEntity('RiskAssessment', id);
 
     return {
-      ...assessment,
+      ...this.withComputed(assessment),
       linkedRisks: assessment.linkedRisks.map((l) => l.risk),
       auditHistory,
     };

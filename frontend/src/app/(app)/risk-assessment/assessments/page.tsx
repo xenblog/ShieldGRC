@@ -62,12 +62,13 @@ export default function AssessmentsPage() {
                     <Link href={`/risk-assessment/assessments/${a.id}`} className="hover:underline">
                       {a.name}
                     </Link>
+                    {a.isOverdue && <span className="ml-2 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700">Overdue</span>}
                   </td>
                   <td>{a.orgUnit?.name}</td>
                   <td>{a.leadAssessor?.name}</td>
                   <td>{a.status}</td>
                   <td>{a.progressPercent}%</td>
-                  <td>{new Date(a.dueDate).toLocaleDateString()}</td>
+                  <td className={a.isOverdue ? 'font-semibold text-red-600' : ''}>{new Date(a.dueDate).toLocaleDateString()}</td>
                 </tr>
               ))}
             </tbody>

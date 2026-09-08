@@ -24,15 +24,15 @@ export function calculateScore(likelihood: number, impact: number): number {
 }
 
 /**
- * Low 1-5, Medium 6-10, High 11-15, Critical 16-25.
+ * Low < 4 (1-3), Medium 4-7, High 8-14, Critical >= 15 (15-25).
  */
 export function scoreToBand(score: number): ScoreBand {
   if (score < 1 || score > 25) {
     throw new Error('score must be between 1 and 25');
   }
-  if (score <= 5) return ScoreBand.LOW;
-  if (score <= 10) return ScoreBand.MEDIUM;
-  if (score <= 15) return ScoreBand.HIGH;
+  if (score < 4) return ScoreBand.LOW;
+  if (score <= 7) return ScoreBand.MEDIUM;
+  if (score <= 14) return ScoreBand.HIGH;
   return ScoreBand.CRITICAL;
 }
 

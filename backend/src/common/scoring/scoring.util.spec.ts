@@ -22,12 +22,12 @@ describe('scoring.util', () => {
   describe('scoreToBand', () => {
     it.each([
       [1, ScoreBand.LOW],
-      [5, ScoreBand.LOW],
-      [6, ScoreBand.MEDIUM],
-      [10, ScoreBand.MEDIUM],
-      [11, ScoreBand.HIGH],
-      [15, ScoreBand.HIGH],
-      [16, ScoreBand.CRITICAL],
+      [3, ScoreBand.LOW],
+      [4, ScoreBand.MEDIUM],
+      [7, ScoreBand.MEDIUM],
+      [8, ScoreBand.HIGH],
+      [14, ScoreBand.HIGH],
+      [15, ScoreBand.CRITICAL],
       [25, ScoreBand.CRITICAL],
     ])('maps score %i to band %s', (score, band) => {
       expect(scoreToBand(score)).toBe(band);
@@ -65,7 +65,7 @@ describe('scoring.util', () => {
       expect(result.inherentScore).toBe(25);
       expect(result.inherentBand).toBe(ScoreBand.CRITICAL);
       expect(result.residualScore).toBe(4);
-      expect(result.residualBand).toBe(ScoreBand.LOW);
+      expect(result.residualBand).toBe(ScoreBand.MEDIUM);
     });
 
     it('treats residual as absent if only one of the two values is set', () => {

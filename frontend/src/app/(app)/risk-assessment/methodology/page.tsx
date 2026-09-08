@@ -11,6 +11,7 @@ export default function MethodologyPage() {
   const { data: current, loading, setData } = useApiGet<MethodologyVersion>('/methodology/current');
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
+  const [draftFramework, setDraftFramework] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -18,6 +19,7 @@ export default function MethodologyPage() {
 
   function startEditing() {
     setDraft(current?.contentHtml ?? '');
+    setDraftFramework(current?.frameworkReference ?? '');
     setEditing(true);
   }
 
@@ -25,7 +27,10 @@ export default function MethodologyPage() {
     setSubmitting(true);
     setError(null);
     try {
-      const created = await api.post<MethodologyVersion>('/methodology', { contentHtml: draft });
+      const created = await api.post<MethodologyVersion>('/methodology', {
+        frameworkReference: draftFramework,
+        contentHtml: draft,
+      });
       setData(created);
       setEditing(false);
     } catch (err) {
@@ -50,10 +55,15 @@ export default function MethodologyPage() {
 
       {!editing && current && (
         <div className="dgs-card p-6">
-          <p className="mb-3 text-xs text-[var(--dgs-text-muted)]">
-            Version {current.version} · published {new Date(current.createdAt).toLocaleDateString()} by{' '}
-            {current.author.name}
-          </p>
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <span className="rounded bg-[var(--dgs-primary)]/10 px-2 py-1 text-xs font-semibold text-[var(--dgs-primary)]">
+              {current.frameworkReference}
+            </span>
+            <p className="text-xs text-[var(--dgs-text-muted)]">
+              Version {current.version} · published {new Date(current.createdAt).toLocaleDateString()} by{' '}
+              {current.author.name}
+            </p>
+          </div>
           <div
             className="max-w-none text-sm leading-relaxed [&_h2]:mt-4 [&_h2]:text-base [&_h2]:font-semibold [&_ul]:list-disc [&_ul]:pl-5"
             dangerouslySetInnerHTML={{ __html: current.contentHtml }}
@@ -66,6 +76,17 @@ export default function MethodologyPage() {
           <p className="text-xs text-[var(--dgs-text-muted)]">
             Editing publishes a new version (rich text as HTML). The previous version remains in history.
           </p>
+          <div>
+            <label className="mb-1 block text-xs font-semibold uppercase text-[var(--dgs-text-muted)]">
+              Framework / standard reference
+            </label>
+            <input
+              value={draftFramework}
+              onChange={(e) => setDraftFramework(e.target.value)}
+              placeholder="e.g. NIST SP 800-30 Rev. 1"
+              className="w-full rounded border px-3 py-2 text-sm"
+            />
+          </div>
           <textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}

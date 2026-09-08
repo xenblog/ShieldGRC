@@ -76,7 +76,7 @@ describe('Risk Register (e2e)', () => {
       .send({ residualLikelihood: 3, residualImpact: 3, treatmentStrategy: 'REDUCE' })
       .expect(200);
     expect(updated.body.residualScore).toBe(9);
-    expect(updated.body.residualBand).toBe('MEDIUM');
+    expect(updated.body.residualBand).toBe('HIGH');
     // Inherent score is untouched by a residual-only edit.
     expect(updated.body.inherentScore).toBe(25);
     expect(updated.body.auditHistory).toHaveLength(2);
@@ -88,7 +88,7 @@ describe('Risk Register (e2e)', () => {
       .send({ likelihood: 1 })
       .expect(200);
     expect(updated2.body.inherentScore).toBe(5);
-    expect(updated2.body.inherentBand).toBe('LOW');
+    expect(updated2.body.inherentBand).toBe('MEDIUM');
     expect(updated2.body.residualScore).toBe(9); // still carried over, untouched
   });
 

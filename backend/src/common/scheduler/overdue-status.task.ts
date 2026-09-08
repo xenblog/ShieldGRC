@@ -1,14 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { AssessmentStatus, TreatmentActionStatus } from '@prisma/client';
+import { TreatmentActionStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 /**
- * Daily sweep that flips Assessment/TreatmentAction status to OVERDUE once
- * their due date has passed and they are not yet COMPLETED, so status
- * filters (?status=OVERDUE) stay accurate between direct edits. Dashboard
- * "overdue" tiles additionally compare dueDate directly (see
- * DashboardsService) so they never lag behind this daily sweep.
+ * Daily sweep that flips TreatmentAction status to OVERDUE once its due date
+ * has passed and it is not yet COMPLETED, so status filters
+ * (?status=OVERDUE) stay accurate between direct edits. Assessment
+ * "overdue" is a derived, visual-only flag (dueDate passed and status not
+ * COMPLETED) rather than a stored status, so it needs no sweep here - see
+ * DashboardsService and RiskAssessmentsService.
  */
 @Injectable()
 export class OverdueStatusTask {
@@ -20,14 +21,6 @@ export class OverdueStatusTask {
   async run(): Promise<void> {
     const now = new Date();
 
-    const assessments = await this.prisma.riskAssessment.updateMany({
-      where: {
-        dueDate: { lt: now },
-        status: { in: [AssessmentStatus.PLANNED, AssessmentStatus.IN_PROGRESS] },
-      },
-      data: { status: AssessmentStatus.OVERDUE },
-    });
-
     const treatmentActions = await this.prisma.treatmentAction.updateMany({
       where: {
         dueDate: { lt: now },
@@ -36,8 +29,6 @@ export class OverdueStatusTask {
       data: { status: TreatmentActionStatus.OVERDUE },
     });
 
-    this.logger.log(
-      `Overdue sweep: ${assessments.count} assessment(s), ${treatmentActions.count} treatment action(s) marked OVERDUE`,
-    );
+    this.logger.log(`Overdue sweep: ${treatmentActions.count} treatment action(s) marked OVERDUE`);
   }
 }
