@@ -10,7 +10,6 @@ import { BandBadge } from '@/components/BandBadge';
 import { RiskFields, RiskFieldValues, SCALE_LABELS } from '@/components/risks/RiskFields';
 import { Category, OrgUnit, RiskDetail, TreatmentActionStatus, UserSummary } from '@/lib/types';
 import {
-  ASSESSMENT_STATUS_LABEL,
   RISK_STATUS_CLASS,
   RISK_STATUS_LABEL,
   TREATMENT_STATUS_CLASS,
@@ -166,24 +165,6 @@ export default function RiskDetailPage() {
 
           <div className="card">
             <div className="card-header">
-              <div className="section-title">Linked Risk Assessments</div>
-            </div>
-            {risk.linkedAssessments.length === 0 ? (
-              <p className="helper-note">None yet.</p>
-            ) : (
-              risk.linkedAssessments.map((a) => (
-                <div key={a.id} className="linked-item">
-                  <Link href={`/risk-assessment/assessments/${a.id}`} style={{ fontFamily: 'var(--font-content)', fontSize: 13, color: 'var(--dgs-black)' }}>
-                    {a.code} — {a.name}
-                  </Link>
-                  <span className="tag">{ASSESSMENT_STATUS_LABEL[a.status]}</span>
-                </div>
-              ))
-            )}
-          </div>
-
-          <div className="card">
-            <div className="card-header">
               <div className="section-title">Treatment Actions for this Risk</div>
               {canEdit && (
                 <button type="button" onClick={() => setAddingAction((v) => !v)} className="btn-secondary">
@@ -273,7 +254,7 @@ export default function RiskDetailPage() {
         <div className="col-right" style={{ flex: 1 }}>
           <div className="card">
             <div className="card-header">
-              <div className="section-title">Risk Scores</div>
+              <div className="section-title">Risk Score</div>
             </div>
             <div className="score-tile-row">
               <div className="score-tile">
@@ -305,7 +286,7 @@ export default function RiskDetailPage() {
 
           <div className="card">
             <div className="card-header">
-              <div className="section-title">Summary</div>
+              <div className="section-title">Risk Summary</div>
             </div>
             <div className="summary-row">
               <span className="summary-label">Risk ID</span>

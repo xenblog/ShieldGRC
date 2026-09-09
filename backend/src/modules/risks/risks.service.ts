@@ -6,7 +6,7 @@ import { AuditService } from '../../common/audit/audit.service';
 import { AuthenticatedUser } from '../../common/types/authenticated-user';
 import { OPEN_RISK_STATUSES } from '../../common/risk-status/open-risk-statuses';
 import { recalculateRiskScores, scoreToBand } from '../../common/scoring/scoring.util';
-import { assessmentDisplayCode, riskDisplayCode } from '../../common/display-code/display-code.util';
+import { riskDisplayCode } from '../../common/display-code/display-code.util';
 import { CreateRiskDto } from './dto/create-risk.dto';
 import { UpdateRiskDto } from './dto/update-risk.dto';
 import { QueryRisksDto, RiskSortField } from './dto/query-risks.dto';
@@ -117,9 +117,6 @@ export class RisksService {
       where: { id },
       include: {
         ...this.commonInclude(),
-        assessmentLinks: {
-          include: { assessment: { select: { id: true, name: true, status: true, sequenceNumber: true, startDate: true } } },
-        },
         treatmentActions: {
           orderBy: { dueDate: 'asc' },
           include: { owner: { select: { id: true, name: true } } },
@@ -133,10 +130,6 @@ export class RisksService {
 
     return {
       ...this.withComputed(risk),
-      linkedAssessments: risk.assessmentLinks.map((l) => ({
-        ...l.assessment,
-        code: assessmentDisplayCode(l.assessment.sequenceNumber, l.assessment.startDate),
-      })),
       auditHistory,
     };
   }
