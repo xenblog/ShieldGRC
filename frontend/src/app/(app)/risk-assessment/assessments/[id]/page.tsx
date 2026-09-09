@@ -7,7 +7,9 @@ import { useApiGet } from '@/lib/hooks';
 import { api } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
 import { BandBadge } from '@/components/BandBadge';
-import { AssessmentStatus, MethodologyVersion, Risk, RiskAssessmentDetail, TreatmentActionStatus, UserSummary } from '@/lib/types';
+import { Modal } from '@/components/Modal';
+import { RiskFields, RiskFieldValues, emptyRiskFieldValues } from '@/components/risks/RiskFields';
+import { Category, OrgUnit, AssessmentStatus, MethodologyVersion, PaginatedRisks, Risk, RiskAssessmentDetail, TreatmentActionStatus, UserSummary } from '@/lib/types';
 import { ASSESSMENT_STATUS_CLASS, ASSESSMENT_STATUS_LABEL, RISK_STATUS_LABEL, TREATMENT_STATUS_LABEL } from '@/lib/status-labels';
 
 const TA_STATUSES: TreatmentActionStatus[] = ['NOT_STARTED', 'IN_PROGRESS', 'COMPLETED', 'OVERDUE'];
@@ -19,9 +21,12 @@ export default function AssessmentDetailPage() {
   const { user } = useAuth();
   const canEdit = user?.role === 'ADMIN' || user?.role === 'RISK_OWNER';
   const { data: assessment, loading, setData } = useApiGet<RiskAssessmentDetail>(`/risk-assessments/${params.id}`, [params.id]);
-  const { data: allRisks } = useApiGet<Risk[]>('/risks');
+  const { data: allRisksPage } = useApiGet<PaginatedRisks>('/risks?pageSize=0');
+  const allRisks = allRisksPage?.items ?? null;
   const { data: users } = useApiGet<UserSummary[]>('/users/assignable');
   const { data: methodology } = useApiGet<MethodologyVersion>('/methodology/current');
+  const { data: categories } = useApiGet<Category[]>('/categories');
+  const { data: orgUnits } = useApiGet<OrgUnit[]>('/org-units');
 
   const [name, setName] = useState<string | null>(null);
   const [scope, setScope] = useState<string | null>(null);
@@ -34,12 +39,21 @@ export default function AssessmentDetailPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [linkingOpen, setLinkingOpen] = useState(false);
+  const [linkSearch, setLinkSearch] = useState('');
   const [selectedRiskIds, setSelectedRiskIds] = useState<string[]>([]);
+
   const [addingAction, setAddingAction] = useState(false);
   const [newActionDescription, setNewActionDescription] = useState('');
   const [newActionRiskId, setNewActionRiskId] = useState('');
   const [newActionOwnerId, setNewActionOwnerId] = useState('');
   const [newActionDueDate, setNewActionDueDate] = useState('');
+  const [addActionError, setAddActionError] = useState<string | null>(null);
+  const [addActionSaving, setAddActionSaving] = useState(false);
+
+  const [newRiskOpen, setNewRiskOpen] = useState(false);
+  const [newRiskValues, setNewRiskValues] = useState<RiskFieldValues>(emptyRiskFieldValues());
+  const [newRiskSaving, setNewRiskSaving] = useState(false);
+  const [newRiskError, setNewRiskError] = useState<string | null>(null);
 
   if (loading) return <p className="helper-note">Loading…</p>;
   if (!assessment) return null;
@@ -54,6 +68,7 @@ export default function AssessmentDetailPage() {
 
   function openLinkModal() {
     setSelectedRiskIds(assessment!.linkedRisks.map((r) => r.id));
+    setLinkSearch('');
     setLinkingOpen(true);
   }
 
@@ -63,22 +78,64 @@ export default function AssessmentDetailPage() {
     setLinkingOpen(false);
   }
 
-  async function addTreatmentAction(e: React.FormEvent) {
+  function openNewRiskModal() {
+    setNewRiskValues(emptyRiskFieldValues());
+    setNewRiskError(null);
+    setNewRiskOpen(true);
+  }
+
+  async function submitNewRisk(e: React.FormEvent) {
     e.preventDefault();
-    await api.post('/treatment-actions', {
-      description: newActionDescription,
-      riskId: newActionRiskId,
-      assessmentId: params.id,
-      ownerId: newActionOwnerId,
-      dueDate: newActionDueDate,
-    });
-    const refreshed = await api.get<RiskAssessmentDetail>(`/risk-assessments/${params.id}`);
-    setData(refreshed);
+    setNewRiskSaving(true);
+    setNewRiskError(null);
+    try {
+      const risk = await api.post<Risk>('/risks', {
+        ...newRiskValues,
+        treatmentStrategy: newRiskValues.treatmentStrategy || undefined,
+        residualScore: newRiskValues.residualScore === '' ? undefined : newRiskValues.residualScore,
+        nextReviewDate: newRiskValues.nextReviewDate || undefined,
+      });
+      const updated = await api.put<RiskAssessmentDetail>(`/risk-assessments/${params.id}/risks`, {
+        riskIds: [...assessment!.linkedRisks.map((r) => r.id), risk.id],
+      });
+      setData(updated);
+      setNewRiskOpen(false);
+    } catch (err) {
+      setNewRiskError(err instanceof Error ? err.message : 'Failed to create risk');
+    } finally {
+      setNewRiskSaving(false);
+    }
+  }
+
+  function openAddActionModal() {
     setNewActionDescription('');
-    setNewActionRiskId('');
+    setNewActionRiskId(assessment!.linkedRisks[0]?.id ?? '');
     setNewActionOwnerId('');
     setNewActionDueDate('');
-    setAddingAction(false);
+    setAddActionError(null);
+    setAddingAction(true);
+  }
+
+  async function addTreatmentAction(e: React.FormEvent) {
+    e.preventDefault();
+    setAddActionSaving(true);
+    setAddActionError(null);
+    try {
+      await api.post('/treatment-actions', {
+        description: newActionDescription,
+        riskId: newActionRiskId,
+        assessmentId: params.id,
+        ownerId: newActionOwnerId,
+        dueDate: newActionDueDate,
+      });
+      const refreshed = await api.get<RiskAssessmentDetail>(`/risk-assessments/${params.id}`);
+      setData(refreshed);
+      setAddingAction(false);
+    } catch (err) {
+      setAddActionError(err instanceof Error ? err.message : 'Failed to add treatment action');
+    } finally {
+      setAddActionSaving(false);
+    }
   }
 
   async function updateActionStatus(actionId: string, newStatus: TreatmentActionStatus) {
@@ -254,36 +311,12 @@ export default function AssessmentDetailPage() {
                   <button type="button" onClick={openLinkModal} className="btn-secondary">
                     + Link from Register
                   </button>
-                  <Link href="/risk-register/new" className="btn-secondary">
+                  <button type="button" onClick={openNewRiskModal} className="btn-secondary">
                     + New Risk
-                  </Link>
+                  </button>
                 </div>
               )}
             </div>
-            {linkingOpen && allRisks && (
-              <div style={{ marginBottom: 14, maxHeight: 220, overflowY: 'auto', border: '1px solid var(--dgs-salt)', borderRadius: 7, padding: 10 }}>
-                {allRisks.map((r) => (
-                  <label key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0', fontFamily: 'var(--font-chrome)', fontSize: 13 }}>
-                    <input
-                      type="checkbox"
-                      checked={selectedRiskIds.includes(r.id)}
-                      onChange={(e) =>
-                        setSelectedRiskIds((prev) => (e.target.checked ? [...prev, r.id] : prev.filter((id) => id !== r.id)))
-                      }
-                    />
-                    {r.code} — {r.title}
-                  </label>
-                ))}
-                <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
-                  <button type="button" onClick={saveLinks} className="btn-primary">
-                    Save
-                  </button>
-                  <button type="button" onClick={() => setLinkingOpen(false)} className="btn-secondary">
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            )}
             {assessment.linkedRisks.length === 0 ? (
               <p className="helper-note">No risks linked yet.</p>
             ) : (
@@ -403,43 +436,11 @@ export default function AssessmentDetailPage() {
           <div className="card-header">
             <div className="section-title">Treatment Actions</div>
             {canEdit && (
-              <button type="button" onClick={() => setAddingAction((v) => !v)} className="btn-secondary">
+              <button type="button" onClick={openAddActionModal} className="btn-secondary">
                 + Add Action
               </button>
             )}
           </div>
-          {addingAction && (
-            <form onSubmit={addTreatmentAction} className="field-row" style={{ marginBottom: 16, alignItems: 'end' }}>
-              <input
-                required
-                placeholder="New treatment action description"
-                value={newActionDescription}
-                onChange={(e) => setNewActionDescription(e.target.value)}
-                className="input"
-                style={{ fontFamily: 'var(--font-chrome)', gridColumn: '1 / -1' }}
-              />
-              <select required className="select-input" value={newActionRiskId} onChange={(e) => setNewActionRiskId(e.target.value)}>
-                <option value="">Linked risk…</option>
-                {assessment.linkedRisks.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.code} — {r.title}
-                  </option>
-                ))}
-              </select>
-              <select required className="select-input" value={newActionOwnerId} onChange={(e) => setNewActionOwnerId(e.target.value)}>
-                <option value="">Owner…</option>
-                {users?.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.name}
-                  </option>
-                ))}
-              </select>
-              <input required type="date" className="input" style={{ fontFamily: 'var(--font-chrome)' }} value={newActionDueDate} onChange={(e) => setNewActionDueDate(e.target.value)} />
-              <button type="submit" className="btn-primary" style={{ gridColumn: '1 / -1' }}>
-                Add
-              </button>
-            </form>
-          )}
           {assessment.treatmentActions.length === 0 ? (
             <p className="helper-note">None yet.</p>
           ) : (
@@ -507,6 +508,174 @@ export default function AssessmentDetailPage() {
           )}
         </div>
       </div>
+
+      {linkingOpen && (
+        <Modal
+          title="Link Risk from Register"
+          subtitle="Vælg en eller flere eksisterende risici fra Risk Register, der skal knyttes til denne vurdering."
+          onClose={() => setLinkingOpen(false)}
+          footer={
+            <>
+              <button type="button" className="btn-secondary" onClick={() => setLinkingOpen(false)}>
+                Annuller
+              </button>
+              <button type="button" className="btn-primary" onClick={saveLinks}>
+                Link valgte risici ({selectedRiskIds.length})
+              </button>
+            </>
+          }
+        >
+          <div className="modal-search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="10.5" cy="10.5" r="6.5" />
+              <line x1="19" y1="19" x2="15.3" y2="15.3" />
+            </svg>
+            <input
+              placeholder="Søg efter risiko-ID eller titel..."
+              value={linkSearch}
+              onChange={(e) => setLinkSearch(e.target.value)}
+              autoFocus
+            />
+          </div>
+          <div className="modal-list">
+            {(allRisks ?? [])
+              .filter((r) => {
+                const q = linkSearch.trim().toLowerCase();
+                if (!q) return true;
+                return r.code.toLowerCase().includes(q) || r.title.toLowerCase().includes(q);
+              })
+              .map((r) => {
+                const checked = selectedRiskIds.includes(r.id);
+                return (
+                  <div
+                    key={r.id}
+                    className="modal-list-row"
+                    onClick={() =>
+                      setSelectedRiskIds((prev) => (checked ? prev.filter((id) => id !== r.id) : [...prev, r.id]))
+                    }
+                  >
+                    <div className={`modal-checkbox${checked ? ' checked' : ''}`}>
+                      {checked && (
+                        <svg viewBox="0 0 24 24" width={10} height={10} fill="none" stroke="#FFFFFF" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M20 6L9 17l-5-5" />
+                        </svg>
+                      )}
+                    </div>
+                    <span className="modal-row-id">{r.code}</span>
+                    <span className="modal-row-title">{r.title}</span>
+                    <BandBadge band={r.inherentBand} score={r.inherentScore} />
+                  </div>
+                );
+              })}
+            {allRisks && allRisks.length > 0 && !(allRisks ?? []).some((r) => {
+              const q = linkSearch.trim().toLowerCase();
+              if (!q) return true;
+              return r.code.toLowerCase().includes(q) || r.title.toLowerCase().includes(q);
+            }) && <div className="modal-empty">No risks match your search.</div>}
+          </div>
+        </Modal>
+      )}
+
+      {newRiskOpen && (
+        <Modal
+          title="New Risk"
+          subtitle="Create a new risk and link it to this assessment."
+          onClose={() => setNewRiskOpen(false)}
+          footer={
+            <>
+              <button type="button" className="btn-secondary" onClick={() => setNewRiskOpen(false)}>
+                Cancel
+              </button>
+              <button type="submit" form="new-risk-modal-form" disabled={newRiskSaving} className="btn-primary">
+                {newRiskSaving ? 'Creating…' : 'Create Risk'}
+              </button>
+            </>
+          }
+        >
+          <form id="new-risk-modal-form" onSubmit={submitNewRisk}>
+            <RiskFields
+              values={newRiskValues}
+              onChange={(key, value) => setNewRiskValues((prev) => ({ ...prev, [key]: value }))}
+              categories={categories}
+              orgUnits={orgUnits}
+              users={users}
+            />
+            {newRiskError && (
+              <p className="helper-note" style={{ color: 'var(--dgs-red)' }}>
+                {newRiskError}
+              </p>
+            )}
+          </form>
+        </Modal>
+      )}
+
+      {addingAction && (
+        <Modal
+          title="Add Treatment Action"
+          onClose={() => setAddingAction(false)}
+          footer={
+            <>
+              <button type="button" className="btn-secondary" onClick={() => setAddingAction(false)}>
+                Cancel
+              </button>
+              <button type="submit" form="add-action-modal-form" disabled={addActionSaving} className="btn-primary">
+                {addActionSaving ? 'Adding…' : 'Add Action'}
+              </button>
+            </>
+          }
+        >
+          <form id="add-action-modal-form" onSubmit={addTreatmentAction}>
+            <div className="field">
+              <label className="field-label">Description</label>
+              <input
+                required
+                className="input"
+                style={{ fontFamily: 'var(--font-chrome)' }}
+                value={newActionDescription}
+                onChange={(e) => setNewActionDescription(e.target.value)}
+              />
+            </div>
+            <div className="field">
+              <label className="field-label">Linked Risk</label>
+              <select required className="select-input" value={newActionRiskId} onChange={(e) => setNewActionRiskId(e.target.value)}>
+                <option value="">Select…</option>
+                {assessment.linkedRisks.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.code} — {r.title}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label className="field-label">Owner</label>
+              <select required className="select-input" value={newActionOwnerId} onChange={(e) => setNewActionOwnerId(e.target.value)}>
+                <option value="">Select…</option>
+                {users?.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field" style={{ marginBottom: 0 }}>
+              <label className="field-label">Due Date</label>
+              <input
+                required
+                type="date"
+                className="input"
+                style={{ fontFamily: 'var(--font-chrome)' }}
+                value={newActionDueDate}
+                onChange={(e) => setNewActionDueDate(e.target.value)}
+              />
+            </div>
+            {addActionError && (
+              <p className="helper-note" style={{ color: 'var(--dgs-red)' }}>
+                {addActionError}
+              </p>
+            )}
+          </form>
+        </Modal>
+      )}
     </>
   );
 }

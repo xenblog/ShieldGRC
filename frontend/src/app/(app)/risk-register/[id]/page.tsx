@@ -246,6 +246,28 @@ export default function RiskDetailPage() {
               ))
             )}
           </div>
+
+          <div className="card">
+            <div className="card-header">
+              <div className="section-title">Audit History</div>
+            </div>
+            {risk.auditHistory.length === 0 ? (
+              <p className="helper-note">None yet.</p>
+            ) : (
+              risk.auditHistory.map((entry) => (
+                <div key={entry.id} className="linked-item">
+                  <div>
+                    <span style={{ fontFamily: 'var(--font-chrome)', fontSize: 12.5, color: 'var(--dgs-black)' }}>
+                      {entry.actor?.name ?? 'System'} {entry.action.toLowerCase()}d the risk
+                    </span>
+                    <div className="helper-note" style={{ marginTop: 2 }}>
+                      {new Date(entry.createdAt).toLocaleString()}
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         </div>
 
         <div className="col-right" style={{ flex: 1 }}>
@@ -309,28 +331,6 @@ export default function RiskDetailPage() {
               <span className="summary-label">Last updated</span>
               <span className="summary-value">{new Date(risk.updatedAt).toLocaleDateString()}</span>
             </div>
-          </div>
-
-          <div className="card">
-            <div className="card-header">
-              <div className="section-title">Audit History</div>
-            </div>
-            {risk.auditHistory.length === 0 ? (
-              <p className="helper-note">None yet.</p>
-            ) : (
-              risk.auditHistory.map((entry) => (
-                <div key={entry.id} className="linked-item">
-                  <div>
-                    <span style={{ fontFamily: 'var(--font-chrome)', fontSize: 12.5, color: 'var(--dgs-black)' }}>
-                      {entry.actor?.name ?? 'System'} {entry.action.toLowerCase()}d the risk
-                    </span>
-                    <div className="helper-note" style={{ marginTop: 2 }}>
-                      {new Date(entry.createdAt).toLocaleString()}
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
           </div>
         </div>
       </div>

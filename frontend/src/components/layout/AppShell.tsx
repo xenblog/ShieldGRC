@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
@@ -39,12 +40,30 @@ function NavRow({ item, pathname }: { item: NavItem; pathname: string }) {
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const pathname = usePathname();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    function onPointerDown(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
+  }, [menuOpen]);
+
+  async function handleLogout() {
+    setMenuOpen(false);
+    await logout();
+  }
 
   return (
     <div className="app" style={{ display: 'flex', minHeight: '100vh', width: '100%' }}>
-      <aside className="sidebar">
+      <aside className="sidebar" ref={menuRef}>
         <div className="brand">
           <div className="brand-mark" />
           <div className="brand-name">DagrofaShield</div>
@@ -70,14 +89,39 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         <div style={{ flexGrow: 1 }} />
 
+        {menuOpen && (
+          <div className="logout-menu">
+            {/* Not yet a functional destination in this build (only Overview,
+                Risk Management, and System are) - closes the menu rather
+                than navigating into a page that doesn't exist yet. */}
+            <button type="button" className="logout-menu-item" onClick={() => setMenuOpen(false)}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="8" r="3.2" />
+                <path d="M5 20c1.2-3.8 4.2-6 7-6s5.8 2.2 7 6" />
+              </svg>
+              Min profil
+            </button>
+            <div className="logout-menu-divider" />
+            <button type="button" className="logout-menu-item danger" onClick={handleLogout}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <path d="M16 17l5-5-5-5" />
+                <line x1="21" y1="12" x2="9" y2="12" />
+              </svg>
+              Log ud
+            </button>
+            <div className="logout-menu-caret" />
+          </div>
+        )}
+
         {user && (
-          <div className="user-card">
+          <button type="button" className="user-card" onClick={() => setMenuOpen((v) => !v)} aria-haspopup="true" aria-expanded={menuOpen}>
             <div className="avatar">{initials(user.name)}</div>
             <div>
               <div className="user-name">{user.name}</div>
-              <div className="user-role">{ROLE_LABEL[user.role] ?? user.role}</div>
+              <div className="user-role">{user.role ? (ROLE_LABEL[user.role] ?? user.role) : 'Pending setup'}</div>
             </div>
-          </div>
+          </button>
         )}
       </aside>
 

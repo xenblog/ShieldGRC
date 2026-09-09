@@ -91,23 +91,25 @@ const ICONS = {
   ),
   users: (
     <svg {...strokeProps}>
-      <circle cx="9" cy="8" r="3.2" />
-      <path d="M3.5 20a5.5 5.5 0 0 1 11 0" />
-      <circle cx="17.5" cy="9" r="2.6" />
-      <path d="M15.5 12.2c2.5.3 4.5 2.1 5 4.3" />
+      <circle cx="12" cy="8" r="3.2" />
+      <path d="M5 20c1.2-3.8 4.2-6 7-6s5.8 2.2 7 6" />
     </svg>
   ),
-  orgUnits: (
+  settings: (
     <svg {...strokeProps}>
-      <path d="M4 21V6l8-3 8 3v15" />
-      <path d="M4 21h16" />
-      <path d="M9 21v-6h6v6" />
-      <path d="M9 10h.01M9 14h.01M15 10h.01M15 14h.01" />
+      <line x1="4" y1="6" x2="20" y2="6" />
+      <circle cx="9" cy="6" r="1.6" fill="currentColor" />
+      <line x1="4" y1="12" x2="20" y2="12" />
+      <circle cx="15" cy="12" r="1.6" fill="currentColor" />
+      <line x1="4" y1="18" x2="20" y2="18" />
+      <circle cx="7" cy="18" r="1.6" fill="currentColor" />
     </svg>
   ),
-  categories: (
+  logout: (
     <svg {...strokeProps}>
-      <path d="M12 2l1.8 5.6H20l-4.8 3.5 1.8 5.6L12 13.2l-5 3.5 1.8-5.6L4 7.6h6.2z" />
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <path d="M16 17l5-5-5-5" />
+      <line x1="21" y1="12" x2="9" y2="12" />
     </svg>
   ),
 };
@@ -145,10 +147,15 @@ export const NAV_SECTIONS: NavSection[] = [
   },
 ];
 
-/** Admin-only, rendered under the "System" section label - matches the mockup's System group. */
+/**
+ * Admin-only, rendered under the "System" section label - matches the
+ * mockup's System group exactly: Users, Audit Log, Settings. Org Units and
+ * Categories are no longer top-level nav items - they're small list-editors
+ * under Settings (see /admin/settings), not their own Risk Register-style
+ * sections.
+ */
 export const SYSTEM_NAV_ITEMS: NavItem[] = [
   { label: 'Users', href: '/admin/users', icon: ICONS.users },
-  { label: 'Org Units', href: '/admin/org-units', icon: ICONS.orgUnits },
-  { label: 'Categories', href: '/admin/categories', icon: ICONS.categories },
   { label: 'Audit Log', href: '/admin/audit-log', icon: ICONS.auditLog },
+  { label: 'Settings', href: '/admin/settings', icon: ICONS.settings },
 ];

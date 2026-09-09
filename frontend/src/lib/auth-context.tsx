@@ -8,7 +8,9 @@ export interface AuthUser {
   id: string;
   email: string;
   name: string;
-  role: UserRole;
+  // Null until an Admin assigns one - a JIT-provisioned SSO user starts with
+  // no role (see the pending-setup screen in the (app) layout).
+  role: UserRole | null;
   orgUnitIds: string[];
 }
 
@@ -65,11 +67,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function logout() {
+    let redirectUrl: string | null = null;
     try {
-      await api.post('/auth/logout');
+      // A full OIDC logout: the backend revokes the local session and, for
+      // an Entra SSO-sourced account, also returns the IdP's end-session
+      // URL - without that redirect a stale Entra browser session would
+      // silently sign the user back in on their next visit.
+      const res = await api.post<{ success: boolean; redirectUrl?: string | null }>('/auth/logout');
+      redirectUrl = res.redirectUrl ?? null;
     } finally {
       setAccessToken(null);
       setUser(null);
+    }
+    if (redirectUrl) {
+      window.location.href = redirectUrl;
     }
   }
 

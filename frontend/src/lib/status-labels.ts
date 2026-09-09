@@ -1,4 +1,4 @@
-import { AssessmentStatus, RiskStatus, TreatmentActionStatus } from './types';
+import { AssessmentStatus, RiskStatus, TreatmentActionStatus, UserAccountStatus, UserRole, UserSource } from './types';
 
 /** Humanized label + `.status-*` CSS class suffix for every status enum used in the UI. */
 
@@ -53,3 +53,38 @@ const TREATMENT_STRATEGY_LABEL: Record<string, string> = {
 export function treatmentStrategyLabel(value: string | null): string {
   return value ? (TREATMENT_STRATEGY_LABEL[value] ?? value) : '—';
 }
+
+// Role pill text is deliberately fuller than the sidebar's short ROLE_LABEL
+// (e.g. "Executive/Board Viewer") - see the Users page mockup.
+export const USER_ROLE_PILL_LABEL: Record<UserRole, string> = {
+  ADMIN: 'Admin',
+  RISK_OWNER: 'Risk Owner',
+  AUDITOR: 'Auditor',
+  EXECUTIVE: 'Executive/Board Viewer',
+};
+export const USER_ROLE_PILL_CLASS: Record<UserRole, string> = {
+  ADMIN: 'role-admin',
+  RISK_OWNER: 'role-riskowner',
+  AUDITOR: 'role-auditor',
+  EXECUTIVE: 'role-exec',
+};
+
+export const USER_SOURCE_LABEL: Record<UserSource, string> = {
+  ENTRA_SSO: 'Entra SSO',
+  MANUAL: 'Manual',
+};
+export const USER_SOURCE_CLASS: Record<UserSource, string> = {
+  ENTRA_SSO: 'tag-source-sso',
+  MANUAL: 'tag-source-manual',
+};
+
+export const USER_ACCOUNT_STATUS_LABEL: Record<UserAccountStatus, string> = {
+  ACTIVE: 'Active',
+  INVITED: 'Invited',
+  DEACTIVATED: 'Deactivated',
+};
+export const USER_ACCOUNT_STATUS_CLASS: Record<UserAccountStatus, string> = {
+  ACTIVE: 'status-active',
+  INVITED: 'status-invited',
+  DEACTIVATED: 'status-deactivated',
+};

@@ -1,4 +1,6 @@
 export type UserRole = 'ADMIN' | 'RISK_OWNER' | 'AUDITOR' | 'EXECUTIVE';
+export type UserAccountStatus = 'ACTIVE' | 'INVITED' | 'DEACTIVATED';
+export type UserSource = 'MANUAL' | 'ENTRA_SSO';
 export type RiskStatus = 'IDENTIFIED' | 'ASSESSED' | 'MITIGATING' | 'ACCEPTED' | 'CLOSED';
 export type ScoreBand = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 export type TreatmentStrategy = 'AVOID' | 'REDUCE' | 'TRANSFER' | 'ACCEPT';
@@ -26,6 +28,18 @@ export interface UserSummary {
   name: string;
   email: string;
   role: UserRole;
+}
+
+/** Row shape from the admin Users CRUD endpoints - the RBAC/org-unit source of truth. */
+export interface AdminUser {
+  id: string;
+  email: string;
+  name: string;
+  role: UserRole | null;
+  status: UserAccountStatus;
+  source: UserSource;
+  lastLoginAt: string | null;
+  orgUnits: OrgUnit[];
 }
 
 export interface AuditLogEntry {
@@ -75,11 +89,9 @@ export interface RiskDetail extends Risk {
   auditHistory: AuditLogEntry[];
 }
 
-export interface RiskGroup {
-  category: Category;
-  count: number;
-  avgResidualScore: number | null;
-  risks: Risk[];
+export interface PaginatedRisks {
+  items: Risk[];
+  total: number;
 }
 
 export interface HeatMapCell {

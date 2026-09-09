@@ -1,17 +1,18 @@
 'use client';
 
-import { Suspense, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useApiGet } from '@/lib/hooks';
 import { BandBadge } from '@/components/BandBadge';
-import { OrgUnit, Category, Risk, RiskGroup, RiskStatus, ScoreBand, UserSummary } from '@/lib/types';
+import { OrgUnit, Category, PaginatedRisks, Risk, RiskStatus, ScoreBand, UserSummary } from '@/lib/types';
 import { BAND_DOT_COLOR, matrixCellBackground } from '@/lib/score-band';
-import { RISK_STATUS_CLASS, RISK_STATUS_LABEL, treatmentStrategyLabel } from '@/lib/status-labels';
+import { RISK_STATUS_CLASS, RISK_STATUS_LABEL } from '@/lib/status-labels';
 import { useAuth } from '@/lib/auth-context';
 
 const STATUSES: RiskStatus[] = ['IDENTIFIED', 'ASSESSED', 'MITIGATING', 'ACCEPTED', 'CLOSED'];
 const BANDS: ScoreBand[] = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const;
 
 export default function RiskRegisterPage() {
   return (
@@ -29,7 +30,6 @@ function initials(name: string): string {
 function RiskRegisterPageInner() {
   const { user } = useAuth();
   const searchParams = useSearchParams();
-  const [grouped, setGrouped] = useState(true);
   const [search, setSearch] = useState('');
   const [orgUnitId, setOrgUnitId] = useState(searchParams.get('orgUnitId') ?? '');
   const [categoryId, setCategoryId] = useState(searchParams.get('categoryId') ?? '');
@@ -55,6 +55,10 @@ function RiskRegisterPageInner() {
       params.set('likelihood', String(cell.likelihood));
       params.set('impact', String(cell.impact));
     }
+    // Server-side scoping only (org unit ACLs, category/status/band/owner) -
+    // fetch every matching row unpaginated so search/sort/pagination below
+    // can work correctly across the whole result set, not just one page.
+    params.set('pageSize', '0');
     return params.toString();
   }, [orgUnitId, categoryId, status, band, ownerId, cell]);
 
@@ -67,15 +71,10 @@ function RiskRegisterPageInner() {
     return params.toString();
   }, [orgUnitId, categoryId]);
 
-  const flatPath = `/risks${query ? `?${query}` : ''}`;
-  const groupedPath = `/risks/grouped${query ? `?${query}` : ''}`;
+  const risksPath = `/risks${query ? `?${query}` : ''}`;
   const matrixPath = `/risks/heat-map${matrixQuery ? `?${matrixQuery}` : ''}`;
 
-  const { data: flatRisks, loading: flatLoading } = useApiGet<Risk[]>(!grouped ? flatPath : null, [flatPath, grouped]);
-  const { data: groups, loading: groupedLoading } = useApiGet<RiskGroup[]>(grouped ? groupedPath : null, [
-    groupedPath,
-    grouped,
-  ]);
+  const { data: risksPage, loading: risksLoading } = useApiGet<PaginatedRisks>(risksPath, [risksPath]);
   const { data: matrixCells, loading: matrixLoading } = useApiGet<{ likelihood: number; impact: number; count: number; band: ScoreBand }[]>(
     matrixPath,
     [matrixPath],
@@ -84,15 +83,9 @@ function RiskRegisterPageInner() {
   const canCreate = user?.role === 'ADMIN' || user?.role === 'RISK_OWNER';
 
   const searchLower = search.trim().toLowerCase();
-  function matchesSearch(r: Risk) {
-    return !searchLower || r.title.toLowerCase().includes(searchLower) || r.code.toLowerCase().includes(searchLower);
-  }
-
-  const filteredFlat = (flatRisks ?? []).filter(matchesSearch);
-  const filteredGroups = (groups ?? [])
-    .map((g) => ({ ...g, risks: g.risks.filter(matchesSearch) }))
-    .filter((g) => g.risks.length > 0);
-  const totalCount = grouped ? filteredGroups.reduce((sum, g) => sum + g.risks.length, 0) : filteredFlat.length;
+  const filteredRisks = (risksPage?.items ?? []).filter(
+    (r) => !searchLower || r.title.toLowerCase().includes(searchLower) || r.code.toLowerCase().includes(searchLower),
+  );
 
   function selectCell(likelihood: number, impact: number) {
     setCell((prev) => (prev && prev.likelihood === likelihood && prev.impact === impact ? null : { likelihood, impact }));
@@ -103,8 +96,7 @@ function RiskRegisterPageInner() {
   }
 
   function chipsFor(likelihood: number, impact: number): Risk[] {
-    const source = grouped ? filteredGroups.flatMap((g) => g.risks) : filteredFlat;
-    return source.filter((r) => r.likelihood === likelihood && r.impact === impact);
+    return filteredRisks.filter((r) => r.likelihood === likelihood && r.impact === impact);
   }
 
   return (
@@ -112,10 +104,6 @@ function RiskRegisterPageInner() {
       <div className="topbar">
         <div className="page-title">Risk Register</div>
         <div className="topbar-right">
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'var(--font-chrome)', fontSize: 13, color: 'var(--dgs-umami)' }}>
-            <input type="checkbox" checked={grouped} onChange={(e) => setGrouped(e.target.checked)} />
-            Group by category
-          </label>
           {canCreate && (
             <Link href="/risk-register/new" className="btn-primary">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
@@ -192,36 +180,13 @@ function RiskRegisterPageInner() {
         </div>
 
         <div className="card" style={{ padding: 0 }}>
-          {(grouped ? groupedLoading : flatLoading) ? (
+          {risksLoading ? (
             <p className="helper-note" style={{ padding: 18 }}>
               Loading…
             </p>
-          ) : grouped ? (
-            <>
-              {filteredGroups.map((group) => (
-                <RiskGroupSection key={group.category.id} group={group} />
-              ))}
-              {filteredGroups.length === 0 && (
-                <p className="helper-note" style={{ padding: 18 }}>
-                  No risks match the current filters.
-                </p>
-              )}
-            </>
           ) : (
-            <RiskTable risks={filteredFlat} />
+            <RiskTable risks={filteredRisks} />
           )}
-          <div className="table-footer">
-            <span>Showing {totalCount} risk{totalCount === 1 ? '' : 's'}</span>
-            <div className="score-legend">
-              <span>Score:</span>
-              {BANDS.map((b) => (
-                <span key={b}>
-                  <span className="score-legend-dot" style={{ background: BAND_DOT_COLOR[b] }} />
-                  {b[0] + b.slice(1).toLowerCase()} {b === 'LOW' ? '<4' : b === 'MEDIUM' ? '4–7' : b === 'HIGH' ? '8–14' : '≥15'}
-                </span>
-              ))}
-            </div>
-          </div>
         </div>
 
         <div className="card">
@@ -306,52 +271,36 @@ function MatrixRow({
   );
 }
 
-function RiskGroupSection({ group }: { group: RiskGroup }) {
-  const [open, setOpen] = useState(true);
-  return (
-    <div style={{ borderBottom: '1px solid var(--dgs-salt)' }}>
-      <button
-        onClick={() => setOpen(!open)}
-        style={{
-          display: 'flex',
-          width: '100%',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '12px 18px',
-          textAlign: 'left',
-          background: 'none',
-          border: 'none',
-          cursor: 'pointer',
-          fontFamily: 'var(--font-content)',
-        }}
-      >
-        <span style={{ fontWeight: 'bold', fontSize: 14 }}>
-          {open ? '▾' : '▸'} {group.category.name}
-        </span>
-        <span className="helper-note" style={{ margin: 0 }}>
-          {group.count} risk{group.count === 1 ? '' : 's'} · avg residual score{' '}
-          {group.avgResidualScore != null ? group.avgResidualScore.toFixed(1) : '—'}
-        </span>
-      </button>
-      {open && <RiskTable risks={group.risks} />}
-    </div>
-  );
-}
-
-type SortKey = 'title' | 'orgUnit' | 'owner' | 'status' | 'inherent' | 'residual';
+type SortKey = 'id' | 'title' | 'category' | 'likelihood' | 'impact' | 'inherent' | 'residual' | 'status' | 'owner';
 
 const SORT_ACCESSORS: Record<SortKey, (r: Risk) => string | number> = {
+  id: (r) => r.code,
   title: (r) => r.title.toLowerCase(),
-  orgUnit: (r) => r.orgUnit?.name ?? '',
-  owner: (r) => r.owner?.name ?? '',
-  status: (r) => r.status,
+  category: (r) => r.category?.name.toLowerCase() ?? '',
+  likelihood: (r) => r.likelihood,
+  impact: (r) => r.impact,
   inherent: (r) => r.inherentScore,
   residual: (r) => r.residualScore ?? -1,
+  status: (r) => r.status,
+  owner: (r) => r.owner?.name.toLowerCase() ?? '',
 };
 
+/**
+ * The main Risk Register list is a single flat, sortable table - risks are
+ * never grouped by category or any other dimension. Sorted, searched, and
+ * paginated entirely client-side over the full (already org/category/
+ * status/band/owner-filtered) result set the parent fetched, so search
+ * always matches across every page rather than just the visible one.
+ */
 function RiskTable({ risks }: { risks: Risk[] }) {
-  const [sortKey, setSortKey] = useState<SortKey | null>(null);
-  const [sortDir, setSortDir] = useState<1 | -1>(1);
+  const [sortKey, setSortKey] = useState<SortKey>('inherent');
+  const [sortDir, setSortDir] = useState<1 | -1>(-1);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
+
+  useEffect(() => {
+    setPage(1);
+  }, [risks, pageSize]);
 
   if (risks.length === 0) {
     return (
@@ -370,20 +319,24 @@ function RiskTable({ risks }: { risks: Risk[] }) {
     }
   }
 
-  const sortedRisks = sortKey
-    ? [...risks].sort((a, b) => {
-        const accessor = SORT_ACCESSORS[sortKey];
-        const av = accessor(a);
-        const bv = accessor(b);
-        if (av < bv) return -1 * sortDir;
-        if (av > bv) return 1 * sortDir;
-        return 0;
-      })
-    : risks;
+  const accessor = SORT_ACCESSORS[sortKey];
+  const sortedRisks = [...risks].sort((a, b) => {
+    const av = accessor(a);
+    const bv = accessor(b);
+    if (av < bv) return -1 * sortDir;
+    if (av > bv) return 1 * sortDir;
+    return 0;
+  });
 
-  function sortableHeader(key: SortKey, label: string) {
+  const pageCount = pageSize === 0 ? 1 : Math.max(1, Math.ceil(sortedRisks.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const pageRisks = pageSize === 0 ? sortedRisks : sortedRisks.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const firstShown = sortedRisks.length === 0 ? 0 : (currentPage - 1) * (pageSize === 0 ? sortedRisks.length : pageSize) + 1;
+  const lastShown = pageSize === 0 ? sortedRisks.length : Math.min(currentPage * pageSize, sortedRisks.length);
+
+  function sortableHeader(key: SortKey, label: string, align?: 'center') {
     return (
-      <th onClick={() => toggleSort(key)} style={{ cursor: 'pointer' }}>
+      <th onClick={() => toggleSort(key)} style={{ cursor: 'pointer', textAlign: align }}>
         {label}
         {sortKey === key && <span> {sortDir === 1 ? '▲' : '▼'}</span>}
       </th>
@@ -391,65 +344,115 @@ function RiskTable({ risks }: { risks: Risk[] }) {
   }
 
   return (
-    <div style={{ overflowX: 'auto' }}>
-      <table className="grc-table">
-        <thead>
-          <tr>
-            <th style={{ width: 60 }}>ID</th>
-            {sortableHeader('title', 'Risk Description')}
-            <th>Category</th>
-            <th>Org Unit</th>
-            <th style={{ textAlign: 'center' }}>Likelihood</th>
-            <th style={{ textAlign: 'center' }}>Impact</th>
-            {sortableHeader('inherent', 'Inherent')}
-            {sortableHeader('residual', 'Residual')}
-            <th>Owner</th>
-            <th>Treatment</th>
-            {sortableHeader('status', 'Status')}
-          </tr>
-        </thead>
-        <tbody>
-          {sortedRisks.map((r) => (
-            <tr key={r.id}>
-              <td style={{ fontFamily: 'var(--font-chrome)', color: 'var(--dgs-umami)' }}>{r.code}</td>
-              <td>
-                <Link href={`/risk-register/${r.id}`} className="risk-title">
-                  {r.title}
-                </Link>
-                {r.isOverdue && (
-                  <span className="overdue" style={{ display: 'inline-flex', marginLeft: 6 }}>
-                    Review overdue
-                  </span>
-                )}
-              </td>
-              <td>
-                <span className="tag">{r.category?.name}</span>
-              </td>
-              <td>
-                <span className="tag">{r.orgUnit?.name}</span>
-              </td>
-              <td style={{ textAlign: 'center' }}>{r.likelihood}</td>
-              <td style={{ textAlign: 'center' }}>{r.impact}</td>
-              <td>
-                <BandBadge band={r.inherentBand} score={r.inherentScore} />
-              </td>
-              <td>{r.residualBand && r.residualScore != null ? <BandBadge band={r.residualBand} score={r.residualScore} /> : '—'}</td>
-              <td>
-                <div className="owner-cell">
-                  <div className="owner-avatar">{initials(r.owner?.name ?? '?')}</div>
-                  {r.owner?.name}
-                </div>
-              </td>
-              <td>
-                <span className="tag">{treatmentStrategyLabel(r.treatmentStrategy)}</span>
-              </td>
-              <td>
-                <span className={`status ${RISK_STATUS_CLASS[r.status]}`}>{RISK_STATUS_LABEL[r.status]}</span>
-              </td>
+    <>
+      <div style={{ overflowX: 'auto' }}>
+        <table className="grc-table">
+          <thead>
+            <tr>
+              {sortableHeader('id', 'ID')}
+              {sortableHeader('title', 'Risk Description')}
+              {sortableHeader('category', 'Category')}
+              {sortableHeader('likelihood', 'Likelihood', 'center')}
+              {sortableHeader('impact', 'Impact', 'center')}
+              {sortableHeader('inherent', 'Inherent Score')}
+              {sortableHeader('residual', 'Residual Score')}
+              {sortableHeader('status', 'Status')}
+              {sortableHeader('owner', 'Owner')}
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {pageRisks.map((r) => (
+              <tr key={r.id}>
+                <td style={{ fontFamily: 'var(--font-chrome)', color: 'var(--dgs-umami)' }}>{r.code}</td>
+                <td>
+                  <Link href={`/risk-register/${r.id}`} className="risk-title">
+                    {r.title}
+                  </Link>
+                  {r.isOverdue && (
+                    <span className="overdue" style={{ display: 'inline-flex', marginLeft: 6 }}>
+                      Review overdue
+                    </span>
+                  )}
+                </td>
+                <td>
+                  <span className="tag">{r.category?.name}</span>
+                </td>
+                <td style={{ textAlign: 'center' }}>{r.likelihood}</td>
+                <td style={{ textAlign: 'center' }}>{r.impact}</td>
+                <td>
+                  <BandBadge band={r.inherentBand} score={r.inherentScore} showLabel />
+                </td>
+                <td>{r.residualBand && r.residualScore != null ? <BandBadge band={r.residualBand} score={r.residualScore} showLabel /> : '—'}</td>
+                <td>
+                  <span className={`status ${RISK_STATUS_CLASS[r.status]}`}>{RISK_STATUS_LABEL[r.status]}</span>
+                </td>
+                <td>
+                  <div className="owner-cell">
+                    <div className="owner-avatar">{initials(r.owner?.name ?? '?')}</div>
+                    {r.owner?.name}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="table-footer">
+        <span>
+          Showing {firstShown}–{lastShown} of {sortedRisks.length} risk{sortedRisks.length === 1 ? '' : 's'} · sorted by{' '}
+          {SORT_LABEL[sortKey]} ({sortDir === 1 ? 'ascending' : 'descending'})
+        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' }}>
+          <div className="score-legend">
+            <span>Score:</span>
+            {BANDS.map((b) => (
+              <span key={b}>
+                <span className="score-legend-dot" style={{ background: BAND_DOT_COLOR[b] }} />
+                {b[0] + b.slice(1).toLowerCase()} {b === 'LOW' ? '<4' : b === 'MEDIUM' ? '4–7' : b === 'HIGH' ? '8–14' : '≥15'}
+              </span>
+            ))}
+          </div>
+          <div className="pagination">
+            <span>Rows per page:</span>
+            <select
+              className="page-size-select"
+              value={pageSize}
+              onChange={(e) => setPageSize(Number(e.target.value))}
+              style={{ font: 'inherit' }}
+            >
+              {PAGE_SIZE_OPTIONS.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+              <option value={0}>All</option>
+            </select>
+            <div className="page-nav">
+              <button type="button" className="page-btn" disabled={currentPage <= 1} onClick={() => setPage((p) => p - 1)}>
+                ‹
+              </button>
+              <span>
+                Page {currentPage} of {pageCount}
+              </span>
+              <button type="button" className="page-btn" disabled={currentPage >= pageCount} onClick={() => setPage((p) => p + 1)}>
+                ›
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
   );
 }
+
+const SORT_LABEL: Record<SortKey, string> = {
+  id: 'ID',
+  title: 'Risk Description',
+  category: 'Category',
+  likelihood: 'Likelihood',
+  impact: 'Impact',
+  inherent: 'Inherent Score',
+  residual: 'Residual Score',
+  status: 'Status',
+  owner: 'Owner',
+};
