@@ -165,11 +165,11 @@ async function main() {
     status: RiskStatus;
     likelihood: number;
     impact: number;
-    nistCsfFunction?: NistCsfFunction;
     treatmentStrategy?: TreatmentStrategy;
     treatmentNote?: string;
-    residualLikelihood?: number;
-    residualImpact?: number;
+    // Manually entered, not derived from a likelihood/impact pair - see
+    // scoring.util.ts.
+    residualScore?: number;
     notes?: string;
     nextReviewDate?: Date;
   }
@@ -186,11 +186,9 @@ async function main() {
       status: RiskStatus.MITIGATING,
       likelihood: 4,
       impact: 4,
-      nistCsfFunction: NistCsfFunction.PROTECT,
       treatmentStrategy: TreatmentStrategy.REDUCE,
       treatmentNote: 'Udrulning af MFA til alle fjernadgangsløsninger i gang.',
-      residualLikelihood: 2,
-      residualImpact: 3,
+      residualScore: 6,
       nextReviewDate: daysFromNow(60),
     },
     {
@@ -203,7 +201,6 @@ async function main() {
       status: RiskStatus.ASSESSED,
       likelihood: 3,
       impact: 4,
-      nistCsfFunction: NistCsfFunction.PROTECT,
       nextReviewDate: daysFromNow(45),
     },
     {
@@ -230,7 +227,6 @@ async function main() {
       status: RiskStatus.IDENTIFIED,
       likelihood: 3,
       impact: 5,
-      nistCsfFunction: NistCsfFunction.DETECT,
       nextReviewDate: daysFromNow(30),
     },
     {
@@ -243,7 +239,6 @@ async function main() {
       status: RiskStatus.IDENTIFIED,
       likelihood: 2,
       impact: 3,
-      nistCsfFunction: NistCsfFunction.GOVERN,
       nextReviewDate: daysFromNow(120),
     },
     {
@@ -256,7 +251,6 @@ async function main() {
       status: RiskStatus.ASSESSED,
       likelihood: 4,
       impact: 3,
-      nistCsfFunction: NistCsfFunction.GOVERN,
       nextReviewDate: daysFromNow(45),
     },
     {
@@ -271,8 +265,7 @@ async function main() {
       impact: 5,
       treatmentStrategy: TreatmentStrategy.TRANSFER,
       treatmentNote: 'Kontraktkrav om beredskabsplan under forhandling.',
-      residualLikelihood: 2,
-      residualImpact: 4,
+      residualScore: 8,
       nextReviewDate: daysFromNow(60),
     },
     {
@@ -287,8 +280,7 @@ async function main() {
       impact: 4,
       treatmentStrategy: TreatmentStrategy.ACCEPT,
       treatmentNote: 'Ledelsen har accepteret risikoen givet manglende reelle alternativer på kort sigt.',
-      residualLikelihood: 4,
-      residualImpact: 4,
+      residualScore: 16,
       nextReviewDate: daysFromNow(180),
     },
     {
@@ -327,11 +319,9 @@ async function main() {
       status: RiskStatus.MITIGATING,
       likelihood: 4,
       impact: 3,
-      nistCsfFunction: NistCsfFunction.PROTECT,
       treatmentStrategy: TreatmentStrategy.REDUCE,
       treatmentNote: 'Skærpet awareness-træningsprogram igangsat.',
-      residualLikelihood: 2,
-      residualImpact: 3,
+      residualScore: 6,
       nextReviewDate: daysFromNow(45),
     },
     {
@@ -344,7 +334,6 @@ async function main() {
       status: RiskStatus.ASSESSED,
       likelihood: 3,
       impact: 5,
-      nistCsfFunction: NistCsfFunction.PROTECT,
       nextReviewDate: daysFromNow(30),
     },
     {
@@ -357,11 +346,9 @@ async function main() {
       status: RiskStatus.CLOSED,
       likelihood: 2,
       impact: 4,
-      nistCsfFunction: NistCsfFunction.GOVERN,
       treatmentStrategy: TreatmentStrategy.REDUCE,
       treatmentNote: 'Databehandleraftaler er nu på plads med alle relevante leverandører.',
-      residualLikelihood: 1,
-      residualImpact: 2,
+      residualScore: 2,
       nextReviewDate: daysFromNow(365),
     },
     {
@@ -374,7 +361,6 @@ async function main() {
       status: RiskStatus.MITIGATING,
       likelihood: 2,
       impact: 5,
-      nistCsfFunction: NistCsfFunction.RECOVER,
       treatmentStrategy: TreatmentStrategy.REDUCE,
       treatmentNote: 'Offsite/cloud-backup-løsning under udrulning.',
       // Intentionally in the past to demonstrate the overdue-review flag.
@@ -404,15 +390,13 @@ async function main() {
     const scores = recalculateRiskScores({
       likelihood: seed.likelihood,
       impact: seed.impact,
-      residualLikelihood: seed.residualLikelihood ?? null,
-      residualImpact: seed.residualImpact ?? null,
+      residualScore: seed.residualScore ?? null,
     });
     risks[seed.key] = await prisma.risk.create({
       data: {
         title: seed.title,
         description: seed.description,
         categoryId: seed.category.id,
-        nistCsfFunction: seed.nistCsfFunction,
         orgUnitId: seed.orgUnitId,
         ownerId: seed.ownerId,
         status: seed.status,
@@ -422,8 +406,6 @@ async function main() {
         inherentBand: scores.inherentBand,
         treatmentStrategy: seed.treatmentStrategy,
         treatmentNote: seed.treatmentNote,
-        residualLikelihood: seed.residualLikelihood,
-        residualImpact: seed.residualImpact,
         residualScore: scores.residualScore,
         residualBand: scores.residualBand,
         notes: seed.notes,

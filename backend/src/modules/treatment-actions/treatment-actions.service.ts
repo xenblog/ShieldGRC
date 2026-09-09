@@ -5,6 +5,7 @@ import { OrgUnitScopeService } from '../../common/org-unit-scope/org-unit-scope.
 import { AuditService } from '../../common/audit/audit.service';
 import { AssessmentProgressService } from '../../common/assessment-progress/assessment-progress.service';
 import { AuthenticatedUser } from '../../common/types/authenticated-user';
+import { assessmentDisplayCode, riskDisplayCode } from '../../common/display-code/display-code.util';
 import { CreateTreatmentActionDto } from './dto/create-treatment-action.dto';
 import { UpdateTreatmentActionDto } from './dto/update-treatment-action.dto';
 import { QueryTreatmentActionsDto } from './dto/query-treatment-actions.dto';
@@ -25,13 +26,27 @@ export class TreatmentActionsService {
   private commonInclude() {
     return {
       owner: { select: { id: true, name: true } },
-      risk: { select: { id: true, title: true, orgUnitId: true } },
-      assessment: { select: { id: true, name: true } },
+      risk: { select: { id: true, title: true, orgUnitId: true, sequenceNumber: true } },
+      assessment: { select: { id: true, name: true, sequenceNumber: true, startDate: true } },
     } satisfies Prisma.TreatmentActionInclude;
   }
 
-  private withComputed<T extends { status: TreatmentActionStatus; dueDate: Date }>(action: T) {
-    return { ...action, isOverdue: computeIsOverdue(action) };
+  private withComputed<
+    T extends {
+      status: TreatmentActionStatus;
+      dueDate: Date;
+      risk: { sequenceNumber: number };
+      assessment: { sequenceNumber: number; startDate: Date } | null;
+    },
+  >(action: T) {
+    return {
+      ...action,
+      isOverdue: computeIsOverdue(action),
+      risk: { ...action.risk, code: riskDisplayCode(action.risk.sequenceNumber) },
+      assessment: action.assessment
+        ? { ...action.assessment, code: assessmentDisplayCode(action.assessment.sequenceNumber, action.assessment.startDate) }
+        : null,
+    };
   }
 
   async findAll(user: AuthenticatedUser, query: QueryTreatmentActionsDto) {

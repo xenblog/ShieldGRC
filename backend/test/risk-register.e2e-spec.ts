@@ -62,18 +62,19 @@ describe('Risk Register (e2e)', () => {
       .expect(400);
   });
 
-  it('recomputes residual score live when residual likelihood/impact are set on update', async () => {
+  it('recomputes the residual band live from a manually-entered residual score on update', async () => {
     const created = await request(app.getHttpServer())
       .post('/api/risks')
       .set(...authHeader(token))
       .send({ title: 'e2e: residual risk', description: 'desc', categoryId, orgUnitId, ownerId, likelihood: 5, impact: 5 })
       .expect(201);
     expect(created.body.inherentScore).toBe(25);
+    expect(created.body.residualScore).toBeNull();
 
     const updated = await request(app.getHttpServer())
       .patch(`/api/risks/${created.body.id}`)
       .set(...authHeader(token))
-      .send({ residualLikelihood: 3, residualImpact: 3, treatmentStrategy: 'REDUCE' })
+      .send({ residualScore: 9, treatmentStrategy: 'REDUCE' })
       .expect(200);
     expect(updated.body.residualScore).toBe(9);
     expect(updated.body.residualBand).toBe('HIGH');
@@ -81,7 +82,7 @@ describe('Risk Register (e2e)', () => {
     expect(updated.body.inherentScore).toBe(25);
     expect(updated.body.auditHistory).toHaveLength(2);
 
-    // And live again: bumping likelihood recomputes inherent without another residual edit.
+    // And live again: bumping likelihood recomputes inherent without touching residual.
     const updated2 = await request(app.getHttpServer())
       .patch(`/api/risks/${created.body.id}`)
       .set(...authHeader(token))
@@ -90,6 +91,15 @@ describe('Risk Register (e2e)', () => {
     expect(updated2.body.inherentScore).toBe(5);
     expect(updated2.body.inherentBand).toBe('MEDIUM');
     expect(updated2.body.residualScore).toBe(9); // still carried over, untouched
+
+    // Editing the residual score alone recomputes only its band, live.
+    const updated3 = await request(app.getHttpServer())
+      .patch(`/api/risks/${created.body.id}`)
+      .set(...authHeader(token))
+      .send({ residualScore: 3 })
+      .expect(200);
+    expect(updated3.body.residualScore).toBe(3);
+    expect(updated3.body.residualBand).toBe('LOW');
   });
 
   it('flags a risk whose next review date has passed, and does not flag one that has not', async () => {

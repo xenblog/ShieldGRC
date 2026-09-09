@@ -6,6 +6,7 @@ import { AuditService } from '../../common/audit/audit.service';
 import { AuthenticatedUser } from '../../common/types/authenticated-user';
 import { OPEN_RISK_STATUSES } from '../../common/risk-status/open-risk-statuses';
 import { recalculateRiskScores, scoreToBand } from '../../common/scoring/scoring.util';
+import { assessmentDisplayCode, riskDisplayCode } from '../../common/display-code/display-code.util';
 import { CreateRiskDto } from './dto/create-risk.dto';
 import { UpdateRiskDto } from './dto/update-risk.dto';
 import { QueryRisksDto } from './dto/query-risks.dto';
@@ -31,8 +32,8 @@ export class RisksService {
     } satisfies Prisma.RiskInclude;
   }
 
-  private withComputed<T extends { status: RiskStatus; nextReviewDate: Date | null }>(risk: T) {
-    return { ...risk, isOverdue: computeIsOverdue(risk) };
+  private withComputed<T extends { status: RiskStatus; nextReviewDate: Date | null; sequenceNumber: number }>(risk: T) {
+    return { ...risk, isOverdue: computeIsOverdue(risk), code: riskDisplayCode(risk.sequenceNumber) };
   }
 
   private buildWhere(user: AuthenticatedUser, query: QueryRisksDto): Prisma.RiskWhereInput {
@@ -127,7 +128,9 @@ export class RisksService {
       where: { id },
       include: {
         ...this.commonInclude(),
-        assessmentLinks: { include: { assessment: { select: { id: true, name: true, status: true } } } },
+        assessmentLinks: {
+          include: { assessment: { select: { id: true, name: true, status: true, sequenceNumber: true, startDate: true } } },
+        },
         treatmentActions: {
           orderBy: { dueDate: 'asc' },
           include: { owner: { select: { id: true, name: true } } },
@@ -141,7 +144,10 @@ export class RisksService {
 
     return {
       ...this.withComputed(risk),
-      linkedAssessments: risk.assessmentLinks.map((l) => l.assessment),
+      linkedAssessments: risk.assessmentLinks.map((l) => ({
+        ...l.assessment,
+        code: assessmentDisplayCode(l.assessment.sequenceNumber, l.assessment.startDate),
+      })),
       auditHistory,
     };
   }
@@ -156,7 +162,6 @@ export class RisksService {
           title: dto.title,
           description: dto.description,
           categoryId: dto.categoryId,
-          nistCsfFunction: dto.nistCsfFunction,
           orgUnitId: dto.orgUnitId,
           ownerId: dto.ownerId,
           status: dto.status,
@@ -166,8 +171,6 @@ export class RisksService {
           inherentBand: scores.inherentBand,
           treatmentStrategy: dto.treatmentStrategy,
           treatmentNote: dto.treatmentNote,
-          residualLikelihood: dto.residualLikelihood,
-          residualImpact: dto.residualImpact,
           residualScore: scores.residualScore,
           residualBand: scores.residualBand,
           notes: dto.notes,
@@ -200,8 +203,7 @@ export class RisksService {
     const scores = recalculateRiskScores({
       likelihood: dto.likelihood ?? existing.likelihood,
       impact: dto.impact ?? existing.impact,
-      residualLikelihood: dto.residualLikelihood ?? existing.residualLikelihood,
-      residualImpact: dto.residualImpact ?? existing.residualImpact,
+      residualScore: dto.residualScore ?? existing.residualScore,
     });
 
     await this.prisma.$transaction(async (tx) => {
@@ -211,7 +213,6 @@ export class RisksService {
           title: dto.title,
           description: dto.description,
           categoryId: dto.categoryId,
-          nistCsfFunction: dto.nistCsfFunction,
           orgUnitId: dto.orgUnitId,
           ownerId: dto.ownerId,
           status: dto.status,
@@ -221,8 +222,6 @@ export class RisksService {
           inherentBand: scores.inherentBand,
           treatmentStrategy: dto.treatmentStrategy,
           treatmentNote: dto.treatmentNote,
-          residualLikelihood: dto.residualLikelihood,
-          residualImpact: dto.residualImpact,
           residualScore: scores.residualScore,
           residualBand: scores.residualBand,
           notes: dto.notes,

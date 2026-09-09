@@ -3,99 +3,86 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
-import { NAV_ITEMS, ADMIN_NAV_ITEMS, NavItem } from './nav-config';
+import { NAV_SECTIONS, SYSTEM_NAV_ITEMS, NavItem } from './nav-config';
 
-function NavNode({ item, depth, pathname }: { item: NavItem; depth: number; pathname: string }) {
-  const isActive = item.href === pathname;
-  const padding = { paddingLeft: `${12 + depth * 12}px` };
+const ROLE_LABEL: Record<string, string> = {
+  ADMIN: 'Administrator',
+  RISK_OWNER: 'Risk Owner',
+  AUDITOR: 'Auditor',
+  EXECUTIVE: 'Executive Viewer',
+};
 
-  if (item.locked) {
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  return ((parts[0]?.[0] ?? '') + (parts[parts.length - 1]?.[0] ?? '')).toUpperCase();
+}
+
+function NavRow({ item, pathname }: { item: NavItem; pathname: string }) {
+  const isActive = !!item.href && (pathname === item.href || pathname.startsWith(`${item.href}/`));
+
+  if (item.locked || !item.href) {
     return (
-      <div>
-        <div
-          style={padding}
-          aria-disabled
-          title="Coming later"
-          className="flex items-center justify-between py-1.5 pr-3 text-sm text-gray-400"
-        >
-          <span>{item.label}</span>
-          <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-gray-400">
-            Coming later
-          </span>
-        </div>
-        {item.children?.map((child) => (
-          <NavNode key={child.label} item={{ ...child, locked: true }} depth={depth + 1} pathname={pathname} />
-        ))}
+      <div className="nav-item locked">
+        {item.icon}
+        <span>{item.label}</span>
+        {item.phase && <span className="nav-tag">{item.phase}</span>}
       </div>
-    );
-  }
-
-  if (item.href) {
-    return (
-      <Link
-        href={item.href}
-        style={padding}
-        className={`block py-1.5 pr-3 text-sm ${
-          isActive ? 'bg-[var(--dgs-primary)]/10 font-medium text-[var(--dgs-primary)]' : 'text-gray-700 hover:bg-gray-50'
-        }`}
-      >
-        {item.label}
-      </Link>
     );
   }
 
   return (
-    <div>
-      <div style={padding} className="pt-2 pb-1 pr-3 text-xs font-semibold uppercase tracking-wide text-gray-400">
-        {item.label}
-      </div>
-      {item.children?.map((child) => <NavNode key={child.label} item={child} depth={depth + 1} pathname={pathname} />)}
-    </div>
+    <Link href={item.href} className={`nav-item${isActive ? ' active' : ''}`}>
+      {item.icon}
+      <span>{item.label}</span>
+    </Link>
   );
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const pathname = usePathname();
 
   return (
-    <div className="flex min-h-screen">
-      <aside className="w-64 shrink-0 border-r bg-white" style={{ borderColor: 'var(--dgs-border)' }}>
-        <div className="border-b px-4 py-4" style={{ borderColor: 'var(--dgs-border)' }}>
-          <p className="text-sm font-bold text-[var(--dgs-primary)]">DagrofaShield</p>
+    <div className="app" style={{ display: 'flex', minHeight: '100vh', width: '100%' }}>
+      <aside className="sidebar">
+        <div className="brand">
+          <div className="brand-mark" />
+          <div className="brand-name">DagrofaShield</div>
         </div>
-        <nav className="py-2">
-          {NAV_ITEMS.map((item) => (
-            <NavNode key={item.label} item={item} depth={0} pathname={pathname} />
-          ))}
-          {user?.role === 'ADMIN' && (
+
+        {NAV_SECTIONS.map((section) => (
+          <div key={section.label}>
+            <div className="nav-section-label">{section.label}</div>
+            {section.items.map((item) => (
+              <NavRow key={item.label} item={item} pathname={pathname} />
+            ))}
+          </div>
+        ))}
+
+        {user?.role === 'ADMIN' && (
+          <div>
+            <div className="nav-section-label">System</div>
+            {SYSTEM_NAV_ITEMS.map((item) => (
+              <NavRow key={item.label} item={item} pathname={pathname} />
+            ))}
+          </div>
+        )}
+
+        <div style={{ flexGrow: 1 }} />
+
+        {user && (
+          <div className="user-card">
+            <div className="avatar">{initials(user.name)}</div>
             <div>
-              <div className="pt-3 pb-1 pl-3 pr-3 text-xs font-semibold uppercase tracking-wide text-gray-400">Admin</div>
-              {ADMIN_NAV_ITEMS.map((item) => (
-                <NavNode key={item.label} item={item} depth={1} pathname={pathname} />
-              ))}
+              <div className="user-name">{user.name}</div>
+              <div className="user-role">{ROLE_LABEL[user.role] ?? user.role}</div>
             </div>
-          )}
-        </nav>
+          </div>
+        )}
       </aside>
 
-      <div className="flex flex-1 flex-col">
-        <header
-          className="flex items-center justify-end gap-3 border-b bg-white px-6 py-3"
-          style={{ borderColor: 'var(--dgs-border)' }}
-        >
-          {user && (
-            <>
-              <span className="text-sm text-gray-600">
-                {user.name} <span className="text-gray-400">({user.role})</span>
-              </span>
-              <button onClick={() => logout()} className="text-sm text-[var(--dgs-primary)] hover:underline">
-                Sign out
-              </button>
-            </>
-          )}
-        </header>
-        <main className="flex-1 bg-[var(--dgs-bg)] p-6">{children}</main>
+      <div className="main" style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        {children}
       </div>
     </div>
   );

@@ -55,12 +55,11 @@ describe('scoring.util', () => {
       expect(result.residualBand).toBeNull();
     });
 
-    it('computes residual score/band when residual values are present', () => {
+    it('computes residual band from a manually-entered residual score', () => {
       const result = recalculateRiskScores({
         likelihood: 5,
         impact: 5,
-        residualLikelihood: 2,
-        residualImpact: 2,
+        residualScore: 4,
       });
       expect(result.inherentScore).toBe(25);
       expect(result.inherentBand).toBe(ScoreBand.CRITICAL);
@@ -68,24 +67,22 @@ describe('scoring.util', () => {
       expect(result.residualBand).toBe(ScoreBand.MEDIUM);
     });
 
-    it('treats residual as absent if only one of the two values is set', () => {
+    it('treats residual as absent when no residual score is set', () => {
       const result = recalculateRiskScores({
         likelihood: 3,
         impact: 3,
-        residualLikelihood: 2,
-        residualImpact: null,
+        residualScore: null,
       });
       expect(result.residualScore).toBeNull();
       expect(result.residualBand).toBeNull();
     });
 
-    it('recalculates live when values change (simulating a treatment update)', () => {
+    it('recalculates the residual band live when the manual score changes (simulating a treatment update)', () => {
       const before = recalculateRiskScores({ likelihood: 5, impact: 5 });
       const after = recalculateRiskScores({
         likelihood: 5,
         impact: 5,
-        residualLikelihood: 1,
-        residualImpact: 2,
+        residualScore: 2,
       });
       expect(before.residualScore).toBeNull();
       expect(after.residualScore).toBe(2);

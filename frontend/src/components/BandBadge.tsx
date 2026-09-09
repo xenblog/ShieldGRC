@@ -1,12 +1,11 @@
 import { ScoreBand } from '@/lib/types';
-import { BAND_BG_CLASS, BAND_LABEL } from '@/lib/score-band';
+import { BAND_BADGE_CLASS, BAND_LABEL } from '@/lib/score-band';
 
-export function BandBadge({ band }: { band: ScoreBand }) {
-  return (
-    <span
-      className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase text-white ${BAND_BG_CLASS[band]}`}
-    >
-      {BAND_LABEL[band]}
-    </span>
-  );
+/**
+ * Score badge pill (see globals.css `.badge`). Mockups use it two ways:
+ * a bare number in tables/lists (`score` only), or "score — Label" in
+ * detail-page score rows (`score` + `showLabel`).
+ */
+export function BandBadge({ band, score, showLabel }: { band: ScoreBand; score: number; showLabel?: boolean }) {
+  return <span className={`badge ${BAND_BADGE_CLASS[band]}`}>{showLabel ? `${score} — ${BAND_LABEL[band]}` : score}</span>;
 }

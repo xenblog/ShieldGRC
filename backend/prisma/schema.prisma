@@ -221,13 +221,15 @@ model Category {
 // ---------------------------------------------------------------------------
 
 model Risk {
-  id          String   @id @default(uuid())
-  title       String
-  description String
+  id String @id @default(uuid())
+  // Backs the human-readable "R-001" display code shown throughout the UI
+  // (tables, badges, breadcrumbs, matrix chips) - never used for lookups.
+  sequenceNumber Int    @unique @default(autoincrement())
+  title          String
+  description    String
 
-  categoryId       String
-  category         Category         @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  nistCsfFunction  NistCsfFunction?
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
 
   orgUnitId String
   orgUnit   OrgUnit @relation(fields: [orgUnitId], references: [id], onDelete: Restrict)
@@ -245,10 +247,13 @@ model Risk {
   treatmentStrategy TreatmentStrategy?
   treatmentNote     String?
 
-  residualLikelihood Int?
-  residualImpact     Int?
-  residualScore      Int?
-  residualBand       ScoreBand?
+  // Manually entered by the risk owner (1-25) - intentionally NOT derived
+  // from a residual likelihood/impact pair. Placeholder until a future
+  // Control Library + Business Impact Analysis make this a computed value;
+  // residualBand is derived live from residualScore via the same
+  // Low/Medium/High/Critical thresholds as inherentBand (see scoring.util.ts).
+  residualScore Int?
+  residualBand  ScoreBand?
 
   notes          String?
   nextReviewDate DateTime?
@@ -274,9 +279,12 @@ model Risk {
 // ---------------------------------------------------------------------------
 
 model RiskAssessment {
-  id    String @id @default(uuid())
-  name  String
-  scope String
+  id String @id @default(uuid())
+  // Backs the human-readable "ASS-<year>-001" display code shown throughout
+  // the UI - never used for lookups.
+  sequenceNumber Int    @unique @default(autoincrement())
+  name           String
+  scope          String
 
   orgUnitId String
   orgUnit   OrgUnit @relation(fields: [orgUnitId], references: [id], onDelete: Restrict)

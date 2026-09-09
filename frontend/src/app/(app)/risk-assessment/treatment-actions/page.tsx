@@ -6,6 +6,7 @@ import { useApiGet } from '@/lib/hooks';
 import { api } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
 import { OrgUnit, TreatmentAction, TreatmentActionStatus, UserSummary } from '@/lib/types';
+import { TREATMENT_STATUS_CLASS, TREATMENT_STATUS_LABEL } from '@/lib/status-labels';
 
 const STATUSES: TreatmentActionStatus[] = ['NOT_STARTED', 'IN_PROGRESS', 'COMPLETED', 'OVERDUE'];
 
@@ -36,98 +37,114 @@ export default function TreatmentActionsPage() {
   }
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-xl font-semibold">Treatment Actions</h1>
-
-      <div className="dgs-card flex flex-wrap gap-3 p-3">
-        <select value={ownerId} onChange={(e) => setOwnerId(e.target.value)} className="rounded border px-2 py-1 text-sm">
-          <option value="">All owners</option>
-          {users?.map((u) => (
-            <option key={u.id} value={u.id}>
-              {u.name}
-            </option>
-          ))}
-        </select>
-        <select value={status} onChange={(e) => setStatus(e.target.value)} className="rounded border px-2 py-1 text-sm">
-          <option value="">All statuses</option>
-          {STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
-        <select value={orgUnitId} onChange={(e) => setOrgUnitId(e.target.value)} className="rounded border px-2 py-1 text-sm">
-          <option value="">All org units</option>
-          {orgUnits?.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.name}
-            </option>
-          ))}
-        </select>
+    <>
+      <div className="topbar">
+        <div className="page-title">Treatment Actions</div>
       </div>
 
-      <div className="dgs-card overflow-x-auto">
-        {loading ? (
-          <p className="p-4 text-sm text-gray-500">Loading…</p>
-        ) : (
-          <table className="dgs-table w-full">
-            <thead>
-              <tr>
-                <th>Description</th>
-                <th>Risk</th>
-                <th>Assessment</th>
-                <th>Owner</th>
-                <th>Status</th>
-                <th>Due</th>
-              </tr>
-            </thead>
-            <tbody>
-              {actions?.map((a) => (
-                <tr key={a.id}>
-                  <td>{a.description}</td>
-                  <td>
-                    {a.risk && (
-                      <Link href={`/risk-register/${a.risk.id}`} className="hover:underline">
-                        {a.risk.title}
-                      </Link>
-                    )}
-                  </td>
-                  <td>
-                    {a.assessment ? (
-                      <Link href={`/risk-assessment/assessments/${a.assessment.id}`} className="hover:underline">
-                        {a.assessment.name}
-                      </Link>
-                    ) : (
-                      <span className="text-gray-400">Standalone</span>
-                    )}
-                  </td>
-                  <td>{a.owner.name}</td>
-                  <td>
-                    {canEdit ? (
-                      <select
-                        value={a.status}
-                        onChange={(e) => updateStatus(a.id, e.target.value as TreatmentActionStatus)}
-                        className="rounded border px-1 py-0.5 text-xs"
-                      >
-                        {STATUSES.map((s) => (
-                          <option key={s} value={s}>
-                            {s}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      a.status
-                    )}
-                  </td>
-                  <td className={a.isOverdue ? 'font-semibold text-red-600' : ''}>
-                    {new Date(a.dueDate).toLocaleDateString()}
-                  </td>
-                </tr>
+      <div className="content">
+        <div className="card" style={{ padding: '14px 20px' }}>
+          <div className="filter-bar">
+            <select value={ownerId} onChange={(e) => setOwnerId(e.target.value)} className="select">
+              <option value="">Owner: All</option>
+              {users?.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name}
+                </option>
               ))}
-            </tbody>
-          </table>
-        )}
+            </select>
+            <select value={status} onChange={(e) => setStatus(e.target.value)} className="select">
+              <option value="">Status: All</option>
+              {STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {TREATMENT_STATUS_LABEL[s]}
+                </option>
+              ))}
+            </select>
+            <select value={orgUnitId} onChange={(e) => setOrgUnitId(e.target.value)} className="select">
+              <option value="">Org unit: All</option>
+              {orgUnits?.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="card" style={{ padding: 0 }}>
+          {loading ? (
+            <p className="helper-note" style={{ padding: 18 }}>
+              Loading…
+            </p>
+          ) : (
+            <table className="grc-table">
+              <thead>
+                <tr>
+                  <th style={{ width: '30%' }}>Action Description</th>
+                  <th>Risk</th>
+                  <th>Assessment</th>
+                  <th>Owner</th>
+                  <th>Status</th>
+                  <th>Due Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {actions?.map((a) => (
+                  <tr key={a.id}>
+                    <td className="risk-title">{a.description}</td>
+                    <td>
+                      {a.risk && (
+                        <Link href={`/risk-register/${a.risk.id}`} className="tag">
+                          {a.risk.code}
+                        </Link>
+                      )}
+                    </td>
+                    <td>
+                      {a.assessment ? (
+                        <Link href={`/risk-assessment/assessments/${a.assessment.id}`} className="tag">
+                          {a.assessment.code}
+                        </Link>
+                      ) : (
+                        <span className="helper-note">Standalone</span>
+                      )}
+                    </td>
+                    <td>
+                      <div className="owner-cell">{a.owner.name}</div>
+                    </td>
+                    <td>
+                      {canEdit ? (
+                        <select
+                          value={a.status}
+                          onChange={(e) => updateStatus(a.id, e.target.value as TreatmentActionStatus)}
+                          className="select"
+                          style={{ fontSize: 12, padding: '4px 26px 4px 8px' }}
+                        >
+                          {STATUSES.map((s) => (
+                            <option key={s} value={s}>
+                              {TREATMENT_STATUS_LABEL[s]}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className={`status ${TREATMENT_STATUS_CLASS[a.status]}`}>{TREATMENT_STATUS_LABEL[a.status]}</span>
+                      )}
+                    </td>
+                    <td className={a.isOverdue ? 'overdue' : undefined}>{new Date(a.dueDate).toLocaleDateString()}</td>
+                  </tr>
+                ))}
+                {actions?.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="helper-note" style={{ padding: 18 }}>
+                      No treatment actions match the current filters.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }

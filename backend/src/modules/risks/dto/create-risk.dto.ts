@@ -1,6 +1,6 @@
 import { Type } from 'class-transformer';
 import { IsDate, IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
-import { NistCsfFunction, RiskStatus, TreatmentStrategy } from '@prisma/client';
+import { RiskStatus, TreatmentStrategy } from '@prisma/client';
 
 export class CreateRiskDto {
   @IsString()
@@ -11,10 +11,6 @@ export class CreateRiskDto {
 
   @IsString()
   categoryId!: string;
-
-  @IsOptional()
-  @IsEnum(NistCsfFunction)
-  nistCsfFunction?: NistCsfFunction;
 
   @IsString()
   orgUnitId!: string;
@@ -44,17 +40,14 @@ export class CreateRiskDto {
   @IsString()
   treatmentNote?: string;
 
+  // Manually entered by the risk owner (1-25), not derived from a
+  // likelihood/impact pair - see scoring.util.ts for why. Only the band is
+  // computed, live, from this value.
   @IsOptional()
   @IsInt()
   @Min(1)
-  @Max(5)
-  residualLikelihood?: number;
-
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  @Max(5)
-  residualImpact?: number;
+  @Max(25)
+  residualScore?: number;
 
   @IsOptional()
   @IsString()

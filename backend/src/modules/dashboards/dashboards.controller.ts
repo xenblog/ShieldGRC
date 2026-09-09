@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Query } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -11,13 +11,13 @@ export class DashboardsController {
 
   @Get('executive')
   @Roles(UserRole.ADMIN, UserRole.EXECUTIVE)
-  getExecutive(@CurrentUser() user: AuthenticatedUser) {
-    return this.dashboardsService.getExecutiveTiles(user);
+  getExecutive(@CurrentUser() user: AuthenticatedUser, @Query('orgUnitId') orgUnitId?: string) {
+    return this.dashboardsService.getExecutiveTiles(user, orgUnitId);
   }
 
   @Get('operational')
   @Roles(UserRole.ADMIN, UserRole.RISK_OWNER, UserRole.AUDITOR)
-  getOperational(@CurrentUser() user: AuthenticatedUser) {
-    return this.dashboardsService.getOperationalTiles(user);
+  getOperational(@CurrentUser() user: AuthenticatedUser, @Query('orgUnitId') orgUnitId?: string) {
+    return this.dashboardsService.getOperationalTiles(user, orgUnitId);
   }
 }

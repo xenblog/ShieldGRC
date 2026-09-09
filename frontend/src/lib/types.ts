@@ -42,11 +42,11 @@ export interface AuditLogEntry {
 
 export interface Risk {
   id: string;
+  code: string;
   title: string;
   description: string;
   categoryId: string;
   category: Category;
-  nistCsfFunction: NistCsfFunction | null;
   orgUnitId: string;
   orgUnit: OrgUnit;
   ownerId: string;
@@ -58,8 +58,8 @@ export interface Risk {
   inherentBand: ScoreBand;
   treatmentStrategy: TreatmentStrategy | null;
   treatmentNote: string | null;
-  residualLikelihood: number | null;
-  residualImpact: number | null;
+  // Manually entered by the risk owner (1-25) - not derived from a
+  // likelihood/impact pair. Only the band is computed, live, from this value.
   residualScore: number | null;
   residualBand: ScoreBand | null;
   notes: string | null;
@@ -70,7 +70,7 @@ export interface Risk {
 }
 
 export interface RiskDetail extends Risk {
-  linkedAssessments: { id: string; name: string; status: AssessmentStatus }[];
+  linkedAssessments: { id: string; code: string; name: string; status: AssessmentStatus }[];
   treatmentActions: EmbeddedTreatmentAction[];
   auditHistory: AuditLogEntry[];
 }
@@ -89,7 +89,7 @@ export interface HeatMapCell {
   band: ScoreBand;
 }
 
-/** Treatment action as embedded within a Risk or RiskAssessment detail view - the parent is already known, so no risk/assessment back-reference. */
+/** Treatment action as embedded within a Risk detail view - the risk is already known, so no risk back-reference. */
 export interface EmbeddedTreatmentAction {
   id: string;
   description: string;
@@ -98,14 +98,19 @@ export interface EmbeddedTreatmentAction {
   dueDate: string;
 }
 
+/** Treatment action as embedded within a RiskAssessment detail view - carries the risk it belongs to. */
+export interface EmbeddedAssessmentTreatmentAction extends EmbeddedTreatmentAction {
+  risk: { id: string; code: string };
+}
+
 /** Treatment action from the standalone /treatment-actions endpoints - carries its own risk/assessment references. */
 export interface TreatmentAction {
   id: string;
   description: string;
   riskId: string;
-  risk: { id: string; title: string; orgUnitId: string };
+  risk: { id: string; code: string; title: string; orgUnitId: string };
   assessmentId: string | null;
-  assessment: { id: string; name: string } | null;
+  assessment: { id: string; code: string; name: string } | null;
   owner: { id: string; name: string };
   status: TreatmentActionStatus;
   dueDate: string;
@@ -114,6 +119,7 @@ export interface TreatmentAction {
 
 export interface RiskAssessment {
   id: string;
+  code: string;
   name: string;
   scope: string;
   orgUnitId: string;
@@ -134,6 +140,7 @@ export interface RiskAssessment {
 export interface RiskAssessmentDetail extends RiskAssessment {
   linkedRisks: {
     id: string;
+    code: string;
     title: string;
     status: RiskStatus;
     inherentScore: number;
@@ -141,7 +148,7 @@ export interface RiskAssessmentDetail extends RiskAssessment {
     category: Category;
     owner: { id: string; name: string };
   }[];
-  treatmentActions: EmbeddedTreatmentAction[];
+  treatmentActions: EmbeddedAssessmentTreatmentAction[];
   auditHistory: AuditLogEntry[];
 }
 

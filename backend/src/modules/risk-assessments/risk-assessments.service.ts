@@ -5,6 +5,7 @@ import { OrgUnitScopeService } from '../../common/org-unit-scope/org-unit-scope.
 import { AuditService } from '../../common/audit/audit.service';
 import { AssessmentProgressService } from '../../common/assessment-progress/assessment-progress.service';
 import { AuthenticatedUser } from '../../common/types/authenticated-user';
+import { assessmentDisplayCode, riskDisplayCode } from '../../common/display-code/display-code.util';
 import { CreateAssessmentDto } from './dto/create-assessment.dto';
 import { UpdateAssessmentDto } from './dto/update-assessment.dto';
 import { LinkRisksDto } from './dto/link-risks.dto';
@@ -33,8 +34,14 @@ export class RiskAssessmentsService {
     } satisfies Prisma.RiskAssessmentInclude;
   }
 
-  private withComputed<T extends { status: AssessmentStatus; dueDate: Date }>(assessment: T) {
-    return { ...assessment, isOverdue: computeIsOverdue(assessment) };
+  private withComputed<T extends { status: AssessmentStatus; dueDate: Date; sequenceNumber: number; startDate: Date }>(
+    assessment: T,
+  ) {
+    return {
+      ...assessment,
+      isOverdue: computeIsOverdue(assessment),
+      code: assessmentDisplayCode(assessment.sequenceNumber, assessment.startDate),
+    };
   }
 
   async findAll(user: AuthenticatedUser) {
@@ -54,7 +61,10 @@ export class RiskAssessmentsService {
         linkedRisks: { include: { risk: { include: { category: true, owner: { select: { id: true, name: true } } } } } },
         treatmentActions: {
           orderBy: { dueDate: 'asc' },
-          include: { owner: { select: { id: true, name: true } } },
+          include: {
+            owner: { select: { id: true, name: true } },
+            risk: { select: { id: true, sequenceNumber: true } },
+          },
         },
       },
     });
@@ -65,7 +75,11 @@ export class RiskAssessmentsService {
 
     return {
       ...this.withComputed(assessment),
-      linkedRisks: assessment.linkedRisks.map((l) => l.risk),
+      linkedRisks: assessment.linkedRisks.map((l) => ({ ...l.risk, code: riskDisplayCode(l.risk.sequenceNumber) })),
+      treatmentActions: assessment.treatmentActions.map((a) => ({
+        ...a,
+        risk: { ...a.risk, code: riskDisplayCode(a.risk.sequenceNumber) },
+      })),
       auditHistory,
     };
   }
