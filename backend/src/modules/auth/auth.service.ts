@@ -64,7 +64,7 @@ export class AuthService {
     }
 
     const user = await this.prisma.user.findUnique({ where: { id: stored.userId } });
-    if (!user || !user.isActive) {
+    if (!user || user.status === 'DEACTIVATED') {
       throw new UnauthorizedException('User not found or inactive');
     }
 
@@ -82,6 +82,28 @@ export class AuthService {
     await this.prisma.refreshToken.updateMany({
       where: { tokenHash, revokedAt: null },
       data: { revokedAt: new Date() },
+    });
+  }
+
+  // Looks up the owning user of a still-valid refresh token, without
+  // consuming/revoking it. Used by logout to determine whether an
+  // Entra ID end-session redirect is needed, before the token is revoked.
+  async findUserByRefreshToken(rawRefreshToken: string): Promise<User | null> {
+    const tokenHash = hashToken(rawRefreshToken);
+    const stored = await this.prisma.refreshToken.findUnique({ where: { tokenHash } });
+    if (!stored) return null;
+    return this.prisma.user.findUnique({ where: { id: stored.userId } });
+  }
+
+  // Called only on a real login (local password or Entra callback), never
+  // on /auth/refresh, so lastLoginAt reflects actual sign-ins. A successful
+  // login always means the account is now in use, so this also carries an
+  // Invited account into Active on its first sign-in (the provider-level
+  // checks already rejected Deactivated accounts before this runs).
+  async recordLogin(userId: string): Promise<void> {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { lastLoginAt: new Date(), status: 'ACTIVE' },
     });
   }
 

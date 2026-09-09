@@ -22,6 +22,22 @@ enum UserRole {
   EXECUTIVE
 }
 
+// Active: can log in and use the app. Invited: created by an Admin ahead of
+// time, never yet logged in. Deactivated: login blocked, record + audit
+// trail retained. A JIT-provisioned SSO user starts Active (they just
+// authenticated successfully), even before an Admin assigns a role.
+enum UserAccountStatus {
+  ACTIVE
+  INVITED
+  DEACTIVATED
+}
+
+// How the account was provisioned - set once at creation, never user-editable.
+enum UserSource {
+  MANUAL
+  ENTRA_SSO
+}
+
 enum RiskStatus {
   IDENTIFIED
   ASSESSED
@@ -139,18 +155,25 @@ model OrgUnit {
 }
 
 model User {
-  id             String    @id @default(uuid())
-  email          String    @unique
-  name           String
-  role           UserRole
-  isActive       Boolean   @default(true)
+  id    String  @id @default(uuid())
+  email String  @unique
+  name  String
+  // Null until an Admin assigns one - a JIT-provisioned SSO user has no role
+  // (and no org units) until then, so they can authenticate but see no data
+  // and no functional nav (see AuthenticatedUser / the frontend's
+  // pending-setup screen).
+  role   UserRole?
+  status UserAccountStatus @default(INVITED)
+  source UserSource
+  // Updated on every successful login (any provider).
+  lastLoginAt DateTime?
   // Local auth (seeded dev admin / any locally-provisioned account). Null for
   // users who only ever authenticate via Entra ID SSO.
-  passwordHash   String?
+  passwordHash String?
   // Set once a user has signed in via Entra ID at least once.
   azureAdObjectId String?  @unique
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   orgUnits              UserOrgUnit[]
   ownedRisks            Risk[]                @relation("RiskOwner")

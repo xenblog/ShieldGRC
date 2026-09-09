@@ -1,6 +1,6 @@
 import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { User, UserRole } from '@prisma/client';
+import { User } from '@prisma/client';
 import { Issuer, Client, generators } from 'openid-client';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { RedirectAuthProvider } from './auth-provider.interface';
@@ -11,9 +11,9 @@ import { RedirectAuthProvider } from './auth-provider.interface';
  * provider, or supplemented later with an invite/magic-link flow for
  * external supplier users, without AuthService needing to change.
  *
- * First-time SSO sign-in provisions a User with no org unit membership and a
- * conservative default role (least privilege) - an Admin must assign org
- * units and, if needed, elevate the role.
+ * First-time SSO sign-in provisions a User with no role and no org unit
+ * membership - they can authenticate but see no data and no functional nav
+ * until an Admin assigns both (see the frontend's pending-setup screen).
  */
 @Injectable()
 export class EntraAuthProvider implements RedirectAuthProvider {
@@ -98,7 +98,7 @@ export class EntraAuthProvider implements RedirectAuthProvider {
     }
 
     if (user) {
-      if (!user.isActive) {
+      if (user.status === 'DEACTIVATED') {
         throw new UnauthorizedException('This account has been deactivated');
       }
       if (user.azureAdObjectId !== azureAdObjectId) {
@@ -110,15 +110,33 @@ export class EntraAuthProvider implements RedirectAuthProvider {
       return user;
     }
 
-    const defaultRole = (this.config.get<string>('ENTRA_DEFAULT_ROLE') as UserRole) ?? UserRole.AUDITOR;
-    this.logger.log(`Provisioning new SSO user ${email} with default role ${defaultRole}`);
+    this.logger.log(`Provisioning new SSO user ${email} - awaiting role/org unit assignment by an Admin`);
     return this.prisma.user.create({
       data: {
         email,
         name,
-        role: defaultRole,
+        role: null,
+        status: 'ACTIVE',
+        source: 'ENTRA_SSO',
         azureAdObjectId,
       },
     });
+  }
+
+  /**
+   * RP-initiated logout URL (OIDC end_session_endpoint), so a browser
+   * redirect there fully ends the Entra session too - without this, logging
+   * out of DagrofaShield alone would let a stale Entra session silently log
+   * the user back in on their next visit.
+   */
+  async getEndSessionUrl(postLogoutRedirectUri: string): Promise<string | null> {
+    if (!this.isConfigured()) return null;
+    const tenantId = this.config.getOrThrow<string>('ENTRA_TENANT_ID');
+    const issuer = await Issuer.discover(`https://login.microsoftonline.com/${tenantId}/v2.0`);
+    const endSessionEndpoint = (issuer.metadata as { end_session_endpoint?: string }).end_session_endpoint;
+    if (!endSessionEndpoint) return null;
+    const url = new URL(endSessionEndpoint);
+    url.searchParams.set('post_logout_redirect_uri', postLogoutRedirectUri);
+    return url.toString();
   }
 }

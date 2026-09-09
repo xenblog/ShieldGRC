@@ -10,6 +10,9 @@ export interface AuthenticatedUser {
   id: string;
   email: string;
   name: string;
-  role: UserRole;
+  // Null until an Admin assigns one (JIT-provisioned SSO users start with no
+  // role) - RolesGuard denies any @Roles()-guarded endpoint for these users
+  // by construction, since `null` never matches a required role.
+  role: UserRole | null;
   orgUnitIds: string[];
 }

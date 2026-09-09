@@ -4,8 +4,9 @@ import { createTestApp, loginAs, authHeader } from './utils/test-app';
 
 /**
  * Main Risk Register API flow: create -> live inherent/residual scoring ->
- * update -> grouped view -> heat map -> overdue-review flag -> audit trail.
- * Requires DATABASE_URL to point at a migrated + seeded database.
+ * update -> flat sortable/paginated list -> heat map -> overdue-review flag
+ * -> audit trail. Requires DATABASE_URL to point at a migrated + seeded
+ * database.
  */
 describe('Risk Register (e2e)', () => {
   let app: INestApplication;
@@ -136,17 +137,36 @@ describe('Risk Register (e2e)', () => {
     expect(notOverdue.body.isOverdue).toBe(false);
   });
 
-  it('groups the register by category with a count and average residual score per section', async () => {
+  it('lists risks as a single flat table, sorted by inherent score descending by default', async () => {
     const res = await request(app.getHttpServer())
-      .get(`/api/risks/grouped?categoryId=${categoryId}`)
+      .get(`/api/risks?categoryId=${categoryId}`)
       .set(...authHeader(token))
       .expect(200);
 
-    expect(res.body.length).toBeGreaterThan(0);
-    for (const group of res.body) {
-      expect(group.category.id).toBe(categoryId);
-      expect(group.count).toBe(group.risks.length);
+    expect(res.body.total).toBeGreaterThan(0);
+    expect(res.body.items.length).toBeGreaterThan(0);
+    for (const risk of res.body.items) {
+      expect(risk.categoryId).toBe(categoryId);
     }
+    for (let i = 1; i < res.body.items.length; i++) {
+      expect(res.body.items[i - 1].inherentScore).toBeGreaterThanOrEqual(res.body.items[i].inherentScore);
+    }
+  });
+
+  it('paginates and sorts on request', async () => {
+    const page1 = await request(app.getHttpServer())
+      .get('/api/risks?pageSize=2&page=1&sortBy=title&sortDir=asc')
+      .set(...authHeader(token))
+      .expect(200);
+    expect(page1.body.items).toHaveLength(2);
+
+    const page2 = await request(app.getHttpServer())
+      .get('/api/risks?pageSize=2&page=2&sortBy=title&sortDir=asc')
+      .set(...authHeader(token))
+      .expect(200);
+    expect(page2.body.items).toHaveLength(2);
+    expect(page2.body.items[0].id).not.toBe(page1.body.items[0].id);
+    expect(page1.body.items[0].title.localeCompare(page1.body.items[1].title)).toBeLessThanOrEqual(0);
   });
 
   it('heat map returns all 25 cells with correct band per likelihood x impact', async () => {
@@ -163,11 +183,11 @@ describe('Risk Register (e2e)', () => {
       .get('/api/risks?likelihood=4&impact=4')
       .set(...authHeader(token))
       .expect(200);
-    for (const risk of res.body) {
+    for (const risk of res.body.items) {
       expect(risk.likelihood).toBe(4);
       expect(risk.impact).toBe(4);
     }
-    expect(res.body.some((r: { title: string }) => r.title === 'e2e: scoring risk')).toBe(true);
+    expect(res.body.items.some((r: { title: string }) => r.title === 'e2e: scoring risk')).toBe(true);
   });
 
   it('deletes a risk and records the DELETE audit entry (retrievable while entity still existed)', async () => {

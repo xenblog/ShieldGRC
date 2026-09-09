@@ -12,13 +12,8 @@ import { RisksService } from './risks.service';
 export class RisksController {
   constructor(private readonly risksService: RisksService) {}
 
-  // NOTE: 'grouped' and 'heat-map' must stay declared before ':id' or Nest
-  // will try to resolve them as a risk id instead of routing here.
-  @Get('grouped')
-  findGrouped(@CurrentUser() user: AuthenticatedUser, @Query() query: QueryRisksDto) {
-    return this.risksService.findGrouped(user, query);
-  }
-
+  // NOTE: 'heat-map' must stay declared before ':id' or Nest will try to
+  // resolve it as a risk id instead of routing here.
   @Get('heat-map')
   findHeatMap(@CurrentUser() user: AuthenticatedUser, @Query() query: QueryRisksDto) {
     return this.risksService.findHeatMap(user, query);

@@ -38,7 +38,6 @@ services:
       ENTRA_CLIENT_ID: ${ENTRA_CLIENT_ID:-}
       ENTRA_CLIENT_SECRET: ${ENTRA_CLIENT_SECRET:-}
       ENTRA_REDIRECT_URI: ${ENTRA_REDIRECT_URI:-}
-      ENTRA_DEFAULT_ROLE: ${ENTRA_DEFAULT_ROLE:-AUDITOR}
     volumes:
       - evidence_data:/data/evidence
     networks:

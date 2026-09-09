@@ -9,7 +9,7 @@ import { recalculateRiskScores, scoreToBand } from '../../common/scoring/scoring
 import { assessmentDisplayCode, riskDisplayCode } from '../../common/display-code/display-code.util';
 import { CreateRiskDto } from './dto/create-risk.dto';
 import { UpdateRiskDto } from './dto/update-risk.dto';
-import { QueryRisksDto } from './dto/query-risks.dto';
+import { QueryRisksDto, RiskSortField } from './dto/query-risks.dto';
 
 /** A risk whose next review date has passed - CLOSED risks are never flagged, they don't need re-review. */
 function computeIsOverdue(risk: { status: RiskStatus; nextReviewDate: Date | null }): boolean {
@@ -48,48 +48,37 @@ export class RisksService {
     };
   }
 
-  async findAll(user: AuthenticatedUser, query: QueryRisksDto) {
-    const risks = await this.prisma.risk.findMany({
-      where: this.buildWhere(user, query),
-      include: this.commonInclude(),
-      orderBy: { updatedAt: 'desc' },
-    });
-    return risks.map((r) => this.withComputed(r));
+  private buildOrderBy(sortBy: RiskSortField = 'inherentScore', sortDir: 'asc' | 'desc' = 'desc'): Prisma.RiskOrderByWithRelationInput {
+    switch (sortBy) {
+      case 'category':
+        return { category: { name: sortDir } };
+      case 'owner':
+        return { owner: { name: sortDir } };
+      default:
+        return { [sortBy]: sortDir };
+    }
   }
 
-  async findGrouped(user: AuthenticatedUser, query: QueryRisksDto) {
-    const [risks, categories] = await Promise.all([
+  // The Risk Register is always a single flat, sortable table - never
+  // grouped by category or any other dimension. Default sort is Inherent
+  // Score descending; pageSize=0 (the "All" option) skips pagination.
+  async findAll(user: AuthenticatedUser, query: QueryRisksDto) {
+    const where = this.buildWhere(user, query);
+    const orderBy = this.buildOrderBy(query.sortBy, query.sortDir);
+    const pageSize = query.pageSize ?? 25;
+    const page = query.page ?? 1;
+
+    const [risks, total] = await Promise.all([
       this.prisma.risk.findMany({
-        where: this.buildWhere(user, query),
+        where,
         include: this.commonInclude(),
-        orderBy: { updatedAt: 'desc' },
+        orderBy,
+        ...(pageSize > 0 ? { skip: (page - 1) * pageSize, take: pageSize } : {}),
       }),
-      this.prisma.category.findMany({ orderBy: { sortOrder: 'asc' } }),
+      this.prisma.risk.count({ where }),
     ]);
 
-    const byCategory = new Map<string, typeof risks>();
-    for (const risk of risks) {
-      const bucket = byCategory.get(risk.categoryId);
-      if (bucket) bucket.push(risk);
-      else byCategory.set(risk.categoryId, [risk]);
-    }
-
-    return categories
-      .filter((c) => byCategory.has(c.id))
-      .map((category) => {
-        const categoryRisks = byCategory.get(category.id)!;
-        const withResidual = categoryRisks.filter((r) => r.residualScore != null);
-        const avgResidualScore =
-          withResidual.length > 0
-            ? withResidual.reduce((sum, r) => sum + r.residualScore!, 0) / withResidual.length
-            : null;
-        return {
-          category,
-          count: categoryRisks.length,
-          avgResidualScore,
-          risks: categoryRisks.map((r) => this.withComputed(r)),
-        };
-      });
+    return { items: risks.map((r) => this.withComputed(r)), total };
   }
 
   /** Every likelihood x impact cell (25 total, even ones with zero open risks) so the grid is fully colored by band. */

@@ -109,11 +109,20 @@ export class AuthController {
   @HttpCode(200)
   async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const raw = req.cookies?.[REFRESH_COOKIE];
+    let redirectUrl: string | null = null;
     if (raw) {
+      // Look up the user before revoking the token, so we still know its
+      // source - an SSO account needs a real Entra end-session redirect too,
+      // or a stale Entra browser session would silently log them back in.
+      const user = await this.authService.findUserByRefreshToken(raw);
       await this.authService.logout(raw);
+      if (user?.source === 'ENTRA_SSO' && this.entraAuthProvider.isConfigured()) {
+        const frontendOrigin = this.config.get<string>('FRONTEND_ORIGIN', 'http://localhost:3000');
+        redirectUrl = await this.entraAuthProvider.getEndSessionUrl(`${frontendOrigin}/login`);
+      }
     }
     res.clearCookie(REFRESH_COOKIE);
-    return { success: true };
+    return { success: true, redirectUrl };
   }
 
   @Get('me')
@@ -125,6 +134,9 @@ export class AuthController {
     const fullUser = await this.authService.getUserOrThrow(userId);
     const tokens = await this.authService.issueTokensForUser(fullUser);
     this.setRefreshCookie(res, tokens.refreshToken, tokens.refreshTokenExpiresAt);
+    // Only reached via a real login (local password or Entra callback) -
+    // /auth/refresh never calls this - so this is exactly "last signed in".
+    await this.authService.recordLogin(userId);
     return tokens;
   }
 

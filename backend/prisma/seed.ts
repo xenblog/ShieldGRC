@@ -72,7 +72,7 @@ async function main() {
     const user = await prisma.user.upsert({
       where: { email },
       update: {},
-      create: { email, name, role, passwordHash },
+      create: { email, name, role, passwordHash, status: 'ACTIVE', source: 'MANUAL', lastLoginAt: new Date() },
     });
     for (const orgUnitId of orgUnitIds) {
       await prisma.userOrgUnit.upsert({
@@ -104,6 +104,27 @@ async function main() {
     orgLogistik.id,
   ]);
   const executive = await upsertUser('eva.direktion@dagrofa.dk', 'Eva Direktion', UserRole.EXECUTIVE, []);
+
+  // Admin-created-ahead-of-time account that has never signed in - status
+  // stays Invited (and lastLoginAt null) until their first successful
+  // login. No passwordHash: this account is meant to be claimed via Entra
+  // ID SSO, which this dev/seed environment does not have configured.
+  const invitedRiskOwner = await prisma.user.upsert({
+    where: { email: 'thomas.krogh@dagrofa.dk' },
+    update: {},
+    create: {
+      email: 'thomas.krogh@dagrofa.dk',
+      name: 'Thomas Krogh',
+      role: UserRole.RISK_OWNER,
+      status: 'INVITED',
+      source: 'MANUAL',
+    },
+  });
+  await prisma.userOrgUnit.upsert({
+    where: { userId_orgUnitId: { userId: invitedRiskOwner.id, orgUnitId: orgFoodservice.id } },
+    update: {},
+    create: { userId: invitedRiskOwner.id, orgUnitId: orgFoodservice.id },
+  });
 
   // ---------------------------------------------------------------------
   // Methodology (versioned rich text reference page)
@@ -784,6 +805,7 @@ async function main() {
   for (const u of [admin, riskOwnerAps, riskOwnerLogistik, riskOwnerFoodservice, auditor, executive]) {
     console.log(`  - ${u.email} (${u.role})`);
   }
+  console.log(`  - ${invitedRiskOwner.email} (${invitedRiskOwner.role}) - Invited, no password, never logged in`);
 }
 
 main()

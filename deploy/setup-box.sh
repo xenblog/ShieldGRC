@@ -105,7 +105,6 @@ else
         echo "ENTRA_CLIENT_ID="
         echo "ENTRA_CLIENT_SECRET="
         echo "ENTRA_REDIRECT_URI="
-        echo "ENTRA_DEFAULT_ROLE=AUDITOR"
     } >"$ENV_FILE"
     chmod 600 "$ENV_FILE"
     echo "Generated $ENV_FILE (mode 600). Contents not printed - see the file"
