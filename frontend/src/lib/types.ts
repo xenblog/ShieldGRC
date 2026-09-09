@@ -84,7 +84,6 @@ export interface Risk {
 }
 
 export interface RiskDetail extends Risk {
-  linkedAssessments: { id: string; code: string; name: string; status: AssessmentStatus }[];
   treatmentActions: EmbeddedTreatmentAction[];
   auditHistory: AuditLogEntry[];
 }
