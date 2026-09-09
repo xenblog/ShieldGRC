@@ -1,0 +1,195 @@
+#!/usr/bin/env bash
+#
+# git-push-to-deploy hook for DagrofaShield (LAN-only test box).
+#
+# Installed at: /opt/dagrofashield/dagrofashield.git/hooks/post-receive
+# (must be executable). Lives outside the app repo on purpose: this file is
+# the operator's copy, installed onto the box by deploy/setup-box.sh. It is
+# not read from the checked-out worktree at deploy time.
+#
+# Everything for this deployment lives under /opt/dagrofashield/ - this box
+# also runs several unrelated personal services (Home Assistant, Node-RED,
+# Zigbee2MQTT, Mosquitto, MariaDB, InfluxDB, code-server, Duplicati,
+# Portainer, ...) tied together by a separate /opt/docker-compose.yaml and
+# /opt/.env. This hook never reads, writes, or runs `docker compose` from
+# /opt itself - only from $WORK_TREE - and the override it writes sets an
+# explicit compose project `name:` so containers/networks/volumes can never
+# collide with that stack regardless of current directory.
+#
+# On every push to refs/heads/main:
+#   1. Check out the new commit into the deploy worktree.
+#   2. Build the backend's test image and run the unit test suite (no DB
+#      required). Build the backend/frontend runtime images.
+#   3. On any failure: log it, leave whatever is currently running
+#      completely untouched, exit non-zero (visible in `git push` output).
+#   4. On success: (re)write docker-compose.override.yml, `docker compose
+#      up -d` the app services only (never nginx), run
+#      `prisma migrate deploy`, log success.
+#
+# This script never runs `docker compose down`, never passes `-v` to any
+# docker command, and never deletes a volume - the postgres_data and
+# evidence_data volumes are only ever touched by Postgres/the backend
+# themselves. It never calls sudo.
+
+set -u
+set -o pipefail
+
+# Non-interactive SSH commands (which is how git invokes this hook) don't
+# always inherit the same PATH as an interactive login shell. Make sure we
+# can find docker regardless of how it was installed.
+export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
+
+BOX_ROOT="/opt/dagrofashield"
+GIT_DIR="$BOX_ROOT/dagrofashield.git"
+WORK_TREE="$BOX_ROOT/deploy"
+ENV_FILE="$BOX_ROOT/.env"
+LOG_FILE="$BOX_ROOT/deploy.log"
+LOCK_FILE="$GIT_DIR/.deploy.lock"
+FRONTEND_HOST_PORT=3000
+TARGET_BRANCH="refs/heads/main"
+COMPOSE_PROJECT_NAME="dagrofashield"
+
+COMPOSE="docker compose --project-directory $WORK_TREE -f $WORK_TREE/docker-compose.yml -f $WORK_TREE/docker-compose.override.yml --env-file $ENV_FILE"
+
+mkdir -p "$WORK_TREE"
+touch "$LOG_FILE"
+
+log() {
+    printf '[%s] %s\n' "$(date -u '+%Y-%m-%d %H:%M:%SZ')" "$1" >>"$LOG_FILE"
+}
+
+log_block() {
+    # $1 = heading, $2 = body (command output)
+    {
+        printf '[%s] %s\n' "$(date -u '+%Y-%m-%d %H:%M:%SZ')" "$1"
+        printf '%s\n' "$2" | sed 's/^/    /'
+        printf -- '----------------------------------------\n'
+    } >>"$LOG_FILE"
+}
+
+fail() {
+    log_block "DEPLOY FAILED: $1" "$2"
+    echo "DEPLOY FAILED: $1" >&2
+    echo "See $LOG_FILE on the box for full output." >&2
+    exit 1
+}
+
+# Serialize deploys - a second push landing mid-deploy should queue behind
+# this one rather than racing it.
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+    log "Another deploy is already in progress - waiting for it to finish."
+    flock 9
+fi
+
+# --- Which ref was pushed? ---------------------------------------------
+newrev=""
+while read -r oldrev rev refname; do
+    if [ "$refname" = "$TARGET_BRANCH" ]; then
+        newrev="$rev"
+    fi
+done
+
+if [ -z "$newrev" ]; then
+    log "Push did not include $TARGET_BRANCH - nothing to deploy."
+    exit 0
+fi
+
+if [ "$newrev" = "0000000000000000000000000000000000000000" ]; then
+    log "Branch $TARGET_BRANCH was deleted - nothing to deploy."
+    exit 0
+fi
+
+command -v docker >/dev/null 2>&1 || fail "docker not found on PATH" "PATH=$PATH"
+
+if [ ! -f "$ENV_FILE" ]; then
+    fail "missing secrets file" "Expected $ENV_FILE (see deploy/README.md step 4). Not created automatically - refusing to guess at credentials."
+fi
+
+# --- 1. Check out the pushed commit -------------------------------------
+if ! out=$(git --work-tree="$WORK_TREE" --git-dir="$GIT_DIR" checkout -f "$newrev" 2>&1); then
+    fail "git checkout" "$out"
+fi
+log "Checked out $newrev into $WORK_TREE"
+
+cd "$WORK_TREE" || fail "cd into worktree" "$WORK_TREE does not exist"
+
+# Belt-and-suspenders: every docker compose call below must run from
+# $WORK_TREE, never from /opt itself, which would collide with the
+# unrelated personal-services stack at /opt/docker-compose.yaml.
+if [ "$(pwd)" != "$WORK_TREE" ]; then
+    fail "unexpected working directory" "Expected $WORK_TREE, got $(pwd) - refusing to run docker compose from the wrong place."
+fi
+
+# --- 2. Build + test gate (nothing running is touched past this point) --
+TEST_IMAGE="dagrofashield-backend-test:$newrev"
+
+if ! out=$(docker build --target build -t "$TEST_IMAGE" ./backend 2>&1); then
+    fail "backend test-image build" "$out"
+fi
+log "Built backend test image ($TEST_IMAGE)"
+
+if ! out=$(docker run --rm "$TEST_IMAGE" npm test 2>&1); then
+    docker rmi "$TEST_IMAGE" >/dev/null 2>&1
+    fail "backend test suite (npm test)" "$out"
+fi
+log "Backend unit test suite passed"
+docker rmi "$TEST_IMAGE" >/dev/null 2>&1
+
+# $COMPOSE always references docker-compose.override.yml via -f, so it must
+# exist on disk before the very first $COMPOSE invocation - including the
+# `build` below, not just `up -d`. Writing it is just a file write, not a
+# change to anything running, so doing it here (before tests have fully
+# cleared the compose-build step) doesn't compromise the "nothing running
+# is touched until everything has passed" guarantee - only `up -d` further
+# down does that, and it still only runs after `$COMPOSE build` succeeds.
+cat >"$WORK_TREE/docker-compose.override.yml" <<OVERRIDE
+# Generated by post-receive on every deploy - do not edit by hand and do
+# not commit this file (see deploy/README.md). Publishes the frontend on
+# the LAN; backend and postgres intentionally have no host port mapping.
+# The explicit project name is what actually guarantees every container,
+# network, and volume this stack creates is prefixed "dagrofashield_"
+# and can never collide with the box's other docker compose project(s),
+# regardless of which directory a command happens to be run from.
+name: $COMPOSE_PROJECT_NAME
+services:
+  frontend:
+    ports:
+      - "3000:3000"
+OVERRIDE
+log "Wrote docker-compose.override.yml (project name '$COMPOSE_PROJECT_NAME', frontend:3000 published, backend/postgres internal-only)"
+
+if ! out=$($COMPOSE build backend frontend 2>&1); then
+    fail "docker compose build (backend, frontend)" "$out"
+fi
+log "Built backend + frontend runtime images"
+
+# --- 3. Build + tests passed - now it's safe to touch the running stack -
+# postgres + backend + frontend only - nginx is intentionally excluded.
+if ! out=$($COMPOSE up -d postgres backend frontend 2>&1); then
+    fail "docker compose up -d" "$out"
+fi
+log "docker compose up -d (postgres, backend, frontend) succeeded"
+
+# Give the backend container a moment to actually be running before exec.
+ready=0
+for _ in $(seq 1 30); do
+    state=$(docker inspect -f '{{.State.Running}}' "$($COMPOSE ps -q backend)" 2>/dev/null || echo false)
+    if [ "$state" = "true" ]; then
+        ready=1
+        break
+    fi
+    sleep 1
+done
+if [ "$ready" -ne 1 ]; then
+    fail "backend container did not reach Running state" "Checked for 30s after 'up -d'."
+fi
+
+if ! out=$($COMPOSE exec -T backend npx prisma migrate deploy 2>&1); then
+    fail "prisma migrate deploy (containers ARE now running - schema may be stale, check manually)" "$out"
+fi
+log_block "DEPLOY SUCCEEDED ($newrev)" "$out"
+
+echo "Deploy succeeded: $newrev"
+echo "Frontend: http://192.168.86.163:${FRONTEND_HOST_PORT}"
+exit 0

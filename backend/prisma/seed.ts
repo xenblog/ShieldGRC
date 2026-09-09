@@ -72,7 +72,7 @@ async function main() {
     const user = await prisma.user.upsert({
       where: { email },
       update: {},
-      create: { email, name, role, passwordHash },
+      create: { email, name, role, passwordHash, status: 'ACTIVE', source: 'MANUAL', lastLoginAt: new Date() },
     });
     for (const orgUnitId of orgUnitIds) {
       await prisma.userOrgUnit.upsert({
@@ -105,6 +105,27 @@ async function main() {
   ]);
   const executive = await upsertUser('eva.direktion@dagrofa.dk', 'Eva Direktion', UserRole.EXECUTIVE, []);
 
+  // Admin-created-ahead-of-time account that has never signed in - status
+  // stays Invited (and lastLoginAt null) until their first successful
+  // login. No passwordHash: this account is meant to be claimed via Entra
+  // ID SSO, which this dev/seed environment does not have configured.
+  const invitedRiskOwner = await prisma.user.upsert({
+    where: { email: 'thomas.krogh@dagrofa.dk' },
+    update: {},
+    create: {
+      email: 'thomas.krogh@dagrofa.dk',
+      name: 'Thomas Krogh',
+      role: UserRole.RISK_OWNER,
+      status: 'INVITED',
+      source: 'MANUAL',
+    },
+  });
+  await prisma.userOrgUnit.upsert({
+    where: { userId_orgUnitId: { userId: invitedRiskOwner.id, orgUnitId: orgFoodservice.id } },
+    update: {},
+    create: { userId: invitedRiskOwner.id, orgUnitId: orgFoodservice.id },
+  });
+
   // ---------------------------------------------------------------------
   // Methodology (versioned rich text reference page)
   // ---------------------------------------------------------------------
@@ -115,6 +136,7 @@ async function main() {
         version: 1,
         isCurrent: true,
         authorId: admin.id,
+        frameworkReference: 'NIST SP 800-30 Rev. 1',
         contentHtml: `
           <h2>Sandsynligheds- og konsekvensskala</h2>
           <p>Alle risici vurderes på en skala fra 1 til 5 for både sandsynlighed og konsekvens:</p>
@@ -128,11 +150,16 @@ async function main() {
           <h2>Scoringsbånd</h2>
           <p>Risikoscore = sandsynlighed × konsekvens (1-25), inddelt i bånd:</p>
           <ul>
-            <li><strong>Low:</strong> 1-5</li>
-            <li><strong>Medium:</strong> 6-10</li>
-            <li><strong>High:</strong> 11-15</li>
-            <li><strong>Critical:</strong> 16-25</li>
+            <li><strong>Low:</strong> &lt; 4</li>
+            <li><strong>Medium:</strong> 4-7</li>
+            <li><strong>High:</strong> 8-14</li>
+            <li><strong>Critical:</strong> &ge; 15</li>
           </ul>
+          <h2>Risikoappetit</h2>
+          <p>Dagrofa accepterer Low- og Medium-risici inden for normal driftsledelse uden yderligere eskalering.
+          High-risici kræver en dokumenteret behandlingsplan og kvartalsvis opfølgning af risikoejeren. Critical-risici
+          eskaleres til koncernsikkerhed og direktionen inden for 5 arbejdsdage og kræver en godkendt behandlingsplan
+          før risikoen kan accepteres som resterende risiko.</p>
           <h2>Vurderingskadence og -proces</h2>
           <p>Risikoregisteret gennemgås løbende af risikoejere og formelt af koncernsikkerhed hvert kvartal.
           Hver risiko skal have en "næste gennemgangsdato"; overskrides denne, flages risikoen som forfalden
@@ -159,11 +186,11 @@ async function main() {
     status: RiskStatus;
     likelihood: number;
     impact: number;
-    nistCsfFunction?: NistCsfFunction;
     treatmentStrategy?: TreatmentStrategy;
     treatmentNote?: string;
-    residualLikelihood?: number;
-    residualImpact?: number;
+    // Manually entered, not derived from a likelihood/impact pair - see
+    // scoring.util.ts.
+    residualScore?: number;
     notes?: string;
     nextReviewDate?: Date;
   }
@@ -180,11 +207,9 @@ async function main() {
       status: RiskStatus.MITIGATING,
       likelihood: 4,
       impact: 4,
-      nistCsfFunction: NistCsfFunction.PROTECT,
       treatmentStrategy: TreatmentStrategy.REDUCE,
       treatmentNote: 'Udrulning af MFA til alle fjernadgangsløsninger i gang.',
-      residualLikelihood: 2,
-      residualImpact: 3,
+      residualScore: 6,
       nextReviewDate: daysFromNow(60),
     },
     {
@@ -197,7 +222,6 @@ async function main() {
       status: RiskStatus.ASSESSED,
       likelihood: 3,
       impact: 4,
-      nistCsfFunction: NistCsfFunction.PROTECT,
       nextReviewDate: daysFromNow(45),
     },
     {
@@ -224,7 +248,6 @@ async function main() {
       status: RiskStatus.IDENTIFIED,
       likelihood: 3,
       impact: 5,
-      nistCsfFunction: NistCsfFunction.DETECT,
       nextReviewDate: daysFromNow(30),
     },
     {
@@ -237,7 +260,6 @@ async function main() {
       status: RiskStatus.IDENTIFIED,
       likelihood: 2,
       impact: 3,
-      nistCsfFunction: NistCsfFunction.GOVERN,
       nextReviewDate: daysFromNow(120),
     },
     {
@@ -250,7 +272,6 @@ async function main() {
       status: RiskStatus.ASSESSED,
       likelihood: 4,
       impact: 3,
-      nistCsfFunction: NistCsfFunction.GOVERN,
       nextReviewDate: daysFromNow(45),
     },
     {
@@ -265,8 +286,7 @@ async function main() {
       impact: 5,
       treatmentStrategy: TreatmentStrategy.TRANSFER,
       treatmentNote: 'Kontraktkrav om beredskabsplan under forhandling.',
-      residualLikelihood: 2,
-      residualImpact: 4,
+      residualScore: 8,
       nextReviewDate: daysFromNow(60),
     },
     {
@@ -281,8 +301,7 @@ async function main() {
       impact: 4,
       treatmentStrategy: TreatmentStrategy.ACCEPT,
       treatmentNote: 'Ledelsen har accepteret risikoen givet manglende reelle alternativer på kort sigt.',
-      residualLikelihood: 4,
-      residualImpact: 4,
+      residualScore: 16,
       nextReviewDate: daysFromNow(180),
     },
     {
@@ -321,11 +340,9 @@ async function main() {
       status: RiskStatus.MITIGATING,
       likelihood: 4,
       impact: 3,
-      nistCsfFunction: NistCsfFunction.PROTECT,
       treatmentStrategy: TreatmentStrategy.REDUCE,
       treatmentNote: 'Skærpet awareness-træningsprogram igangsat.',
-      residualLikelihood: 2,
-      residualImpact: 3,
+      residualScore: 6,
       nextReviewDate: daysFromNow(45),
     },
     {
@@ -338,7 +355,6 @@ async function main() {
       status: RiskStatus.ASSESSED,
       likelihood: 3,
       impact: 5,
-      nistCsfFunction: NistCsfFunction.PROTECT,
       nextReviewDate: daysFromNow(30),
     },
     {
@@ -351,11 +367,9 @@ async function main() {
       status: RiskStatus.CLOSED,
       likelihood: 2,
       impact: 4,
-      nistCsfFunction: NistCsfFunction.GOVERN,
       treatmentStrategy: TreatmentStrategy.REDUCE,
       treatmentNote: 'Databehandleraftaler er nu på plads med alle relevante leverandører.',
-      residualLikelihood: 1,
-      residualImpact: 2,
+      residualScore: 2,
       nextReviewDate: daysFromNow(365),
     },
     {
@@ -368,7 +382,6 @@ async function main() {
       status: RiskStatus.MITIGATING,
       likelihood: 2,
       impact: 5,
-      nistCsfFunction: NistCsfFunction.RECOVER,
       treatmentStrategy: TreatmentStrategy.REDUCE,
       treatmentNote: 'Offsite/cloud-backup-løsning under udrulning.',
       // Intentionally in the past to demonstrate the overdue-review flag.
@@ -398,15 +411,13 @@ async function main() {
     const scores = recalculateRiskScores({
       likelihood: seed.likelihood,
       impact: seed.impact,
-      residualLikelihood: seed.residualLikelihood ?? null,
-      residualImpact: seed.residualImpact ?? null,
+      residualScore: seed.residualScore ?? null,
     });
     risks[seed.key] = await prisma.risk.create({
       data: {
         title: seed.title,
         description: seed.description,
         categoryId: seed.category.id,
-        nistCsfFunction: seed.nistCsfFunction,
         orgUnitId: seed.orgUnitId,
         ownerId: seed.ownerId,
         status: seed.status,
@@ -416,8 +427,6 @@ async function main() {
         inherentBand: scores.inherentBand,
         treatmentStrategy: seed.treatmentStrategy,
         treatmentNote: seed.treatmentNote,
-        residualLikelihood: seed.residualLikelihood,
-        residualImpact: seed.residualImpact,
         residualScore: scores.residualScore,
         residualBand: scores.residualBand,
         notes: seed.notes,
@@ -484,7 +493,7 @@ async function main() {
     'Gennemgang af informationssikkerhed og tidlig AI-værktøjsbrug i Foodservice-divisionen.',
     orgFoodservice.id,
     riskOwnerFoodservice.id,
-    AssessmentStatus.COMPLETED,
+    AssessmentStatus.UNDER_REVIEW,
     -90,
     -10,
     ['kryptering', 'koeletransport', 'phishing', 'gdpr-deling'],
@@ -796,6 +805,7 @@ async function main() {
   for (const u of [admin, riskOwnerAps, riskOwnerLogistik, riskOwnerFoodservice, auditor, executive]) {
     console.log(`  - ${u.email} (${u.role})`);
   }
+  console.log(`  - ${invitedRiskOwner.email} (${invitedRiskOwner.role}) - Invited, no password, never logged in`);
 }
 
 main()

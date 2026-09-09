@@ -22,6 +22,22 @@ enum UserRole {
   EXECUTIVE
 }
 
+// Active: can log in and use the app. Invited: created by an Admin ahead of
+// time, never yet logged in. Deactivated: login blocked, record + audit
+// trail retained. A JIT-provisioned SSO user starts Active (they just
+// authenticated successfully), even before an Admin assigns a role.
+enum UserAccountStatus {
+  ACTIVE
+  INVITED
+  DEACTIVATED
+}
+
+// How the account was provisioned - set once at creation, never user-editable.
+enum UserSource {
+  MANUAL
+  ENTRA_SSO
+}
+
 enum RiskStatus {
   IDENTIFIED
   ASSESSED
@@ -47,8 +63,8 @@ enum TreatmentStrategy {
 enum AssessmentStatus {
   PLANNED
   IN_PROGRESS
+  UNDER_REVIEW
   COMPLETED
-  OVERDUE
 }
 
 enum TreatmentActionStatus {
@@ -139,18 +155,25 @@ model OrgUnit {
 }
 
 model User {
-  id             String    @id @default(uuid())
-  email          String    @unique
-  name           String
-  role           UserRole
-  isActive       Boolean   @default(true)
+  id    String  @id @default(uuid())
+  email String  @unique
+  name  String
+  // Null until an Admin assigns one - a JIT-provisioned SSO user has no role
+  // (and no org units) until then, so they can authenticate but see no data
+  // and no functional nav (see AuthenticatedUser / the frontend's
+  // pending-setup screen).
+  role   UserRole?
+  status UserAccountStatus @default(INVITED)
+  source UserSource
+  // Updated on every successful login (any provider).
+  lastLoginAt DateTime?
   // Local auth (seeded dev admin / any locally-provisioned account). Null for
   // users who only ever authenticate via Entra ID SSO.
-  passwordHash   String?
+  passwordHash String?
   // Set once a user has signed in via Entra ID at least once.
   azureAdObjectId String?  @unique
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   orgUnits              UserOrgUnit[]
   ownedRisks            Risk[]                @relation("RiskOwner")
@@ -221,13 +244,15 @@ model Category {
 // ---------------------------------------------------------------------------
 
 model Risk {
-  id          String   @id @default(uuid())
-  title       String
-  description String
+  id String @id @default(uuid())
+  // Backs the human-readable "R-001" display code shown throughout the UI
+  // (tables, badges, breadcrumbs, matrix chips) - never used for lookups.
+  sequenceNumber Int    @unique @default(autoincrement())
+  title          String
+  description    String
 
-  categoryId       String
-  category         Category         @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  nistCsfFunction  NistCsfFunction?
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
 
   orgUnitId String
   orgUnit   OrgUnit @relation(fields: [orgUnitId], references: [id], onDelete: Restrict)
@@ -245,10 +270,13 @@ model Risk {
   treatmentStrategy TreatmentStrategy?
   treatmentNote     String?
 
-  residualLikelihood Int?
-  residualImpact     Int?
-  residualScore      Int?
-  residualBand       ScoreBand?
+  // Manually entered by the risk owner (1-25) - intentionally NOT derived
+  // from a residual likelihood/impact pair. Placeholder until a future
+  // Control Library + Business Impact Analysis make this a computed value;
+  // residualBand is derived live from residualScore via the same
+  // Low/Medium/High/Critical thresholds as inherentBand (see scoring.util.ts).
+  residualScore Int?
+  residualBand  ScoreBand?
 
   notes          String?
   nextReviewDate DateTime?
@@ -274,9 +302,12 @@ model Risk {
 // ---------------------------------------------------------------------------
 
 model RiskAssessment {
-  id    String @id @default(uuid())
-  name  String
-  scope String
+  id String @id @default(uuid())
+  // Backs the human-readable "ASS-<year>-001" display code shown throughout
+  // the UI - never used for lookups.
+  sequenceNumber Int    @unique @default(autoincrement())
+  name           String
+  scope          String
 
   orgUnitId String
   orgUnit   OrgUnit @relation(fields: [orgUnitId], references: [id], onDelete: Restrict)
@@ -346,13 +377,16 @@ model TreatmentAction {
 // Versioned rich-text reference page. Admins create new versions; everyone
 // reads the current one. Not modeled as structured/transactional data.
 model MethodologyVersion {
-  id          String   @id @default(uuid())
-  version     Int
-  contentHtml String
-  isCurrent   Boolean  @default(false)
-  authorId    String
-  author      User     @relation("MethodologyAuthor", fields: [authorId], references: [id], onDelete: Restrict)
-  createdAt   DateTime @default(now())
+  id      String @id @default(uuid())
+  version Int
+  // Named framework/standard this version is aligned to, e.g. "NIST SP 800-30
+  // Rev. 1" - editable per version, never hardcoded in the UI.
+  frameworkReference String
+  contentHtml        String
+  isCurrent          Boolean  @default(false)
+  authorId           String
+  author             User     @relation("MethodologyAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  createdAt          DateTime @default(now())
 
   @@unique([version])
   @@map("methodology_versions")

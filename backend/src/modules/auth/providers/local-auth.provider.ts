@@ -18,7 +18,7 @@ export class LocalAuthProvider implements CredentialsAuthProvider {
 
   async validateCredentials(email: string, password: string): Promise<User> {
     const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
-    if (!user || !user.passwordHash || !user.isActive) {
+    if (!user || !user.passwordHash || user.status === 'DEACTIVATED') {
       throw new UnauthorizedException('Invalid email or password');
     }
     const matches = await bcrypt.compare(password, user.passwordHash);

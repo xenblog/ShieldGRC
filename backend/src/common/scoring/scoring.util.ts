@@ -24,15 +24,15 @@ export function calculateScore(likelihood: number, impact: number): number {
 }
 
 /**
- * Low 1-5, Medium 6-10, High 11-15, Critical 16-25.
+ * Low < 4 (1-3), Medium 4-7, High 8-14, Critical >= 15 (15-25).
  */
 export function scoreToBand(score: number): ScoreBand {
   if (score < 1 || score > 25) {
     throw new Error('score must be between 1 and 25');
   }
-  if (score <= 5) return ScoreBand.LOW;
-  if (score <= 10) return ScoreBand.MEDIUM;
-  if (score <= 15) return ScoreBand.HIGH;
+  if (score < 4) return ScoreBand.LOW;
+  if (score <= 7) return ScoreBand.MEDIUM;
+  if (score <= 14) return ScoreBand.HIGH;
   return ScoreBand.CRITICAL;
 }
 
@@ -49,8 +49,12 @@ export function computeScore(likelihood: number, impact: number): ScoreResult {
 export interface RiskScoringInput {
   likelihood: number;
   impact: number;
-  residualLikelihood?: number | null;
-  residualImpact?: number | null;
+  // Manually entered by the risk owner (1-25) - this is intentionally NOT
+  // derived from a residual likelihood/impact pair. Residual scoring is a
+  // placeholder expected to become a computed value once a Control Library
+  // and a Business Impact Analysis exist; until then only its band is
+  // computed, live, from whatever value is currently stored.
+  residualScore?: number | null;
 }
 
 export interface RiskScoringOutput {
@@ -61,21 +65,16 @@ export interface RiskScoringOutput {
 }
 
 /**
- * Live scoring: recompute both inherent and (when present) residual score/band
- * from the current values. Callers (RisksService.create/update, a linked
- * control-test result, a completed treatment action) call this every time any
- * underlying value changes rather than caching a stale computed value.
+ * Live scoring: recompute the inherent score/band from likelihood x impact,
+ * and (when a residual score is present) its band. Callers (RisksService.
+ * create/update) call this every time any underlying value changes rather
+ * than caching a stale computed value.
  */
 export function recalculateRiskScores(input: RiskScoringInput): RiskScoringOutput {
   const inherent = computeScore(input.likelihood, input.impact);
 
-  let residualScore: number | null = null;
-  let residualBand: ScoreBand | null = null;
-  if (input.residualLikelihood != null && input.residualImpact != null) {
-    const residual = computeScore(input.residualLikelihood, input.residualImpact);
-    residualScore = residual.score;
-    residualBand = residual.band;
-  }
+  const residualScore = input.residualScore ?? null;
+  const residualBand = residualScore != null ? scoreToBand(residualScore) : null;
 
   return {
     inherentScore: inherent.score,

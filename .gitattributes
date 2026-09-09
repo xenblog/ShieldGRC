@@ -1,0 +1,7 @@
+# Shell scripts and git hooks must always check out with LF line endings,
+# regardless of the platform or a Windows checkout's core.autocrlf setting -
+# a CRLF shebang line ("#!/usr/bin/env bash\r") fails with
+# "/usr/bin/env: 'bash\r': No such file or directory" on Linux.
+*.sh text eol=lf
+deploy/post-receive text eol=lf
+deploy/setup-box.sh text eol=lf

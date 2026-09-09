@@ -60,4 +60,13 @@ describe('RolesGuard', () => {
       ForbiddenException,
     );
   });
+
+  it('denies a user with no role yet (JIT-provisioned, awaiting Admin setup) from any @Roles()-guarded endpoint', () => {
+    const reflector = {
+      getAllAndOverride: () => [UserRole.ADMIN],
+    } as unknown as Reflector;
+    const guard = new RolesGuard(reflector);
+    const noRoleUser: AuthenticatedUser = { id: 'u2', email: 'u2@dagrofa.dk', name: 'No Role', role: null, orgUnitIds: [] };
+    expect(() => guard.canActivate(buildContext(noRoleUser))).toThrow(ForbiddenException);
+  });
 });

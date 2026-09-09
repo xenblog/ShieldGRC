@@ -30,7 +30,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       where: { id: payload.sub },
       include: { orgUnits: { select: { orgUnitId: true } } },
     });
-    if (!user || !user.isActive) {
+    if (!user || user.status === 'DEACTIVATED') {
       throw new UnauthorizedException('User not found or inactive');
     }
     return {

@@ -29,6 +29,7 @@ export class MethodologyService {
       return tx.methodologyVersion.create({
         data: {
           version: (last?.version ?? 0) + 1,
+          frameworkReference: dto.frameworkReference,
           contentHtml: dto.contentHtml,
           isCurrent: true,
           authorId,

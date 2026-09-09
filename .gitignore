@@ -9,6 +9,11 @@ out/
 .env.local
 .env.*.local
 
+# deploy: generated fresh by the post-receive hook on every deploy, never
+# checked in (see deploy/README.md)
+docker-compose.override.yml
+deploy.log
+
 # logs
 *.log
 npm-debug.log*
@@ -31,3 +36,6 @@ Thumbs.db
 
 # test coverage
 coverage/
+
+# TypeScript incremental build cache
+*.tsbuildinfo
