@@ -15,7 +15,6 @@ export interface RiskFieldValues {
   likelihood: number;
   impact: number;
   treatmentStrategy: TreatmentStrategy | '';
-  treatmentNote: string;
   residualScore: number | '';
   notes: string;
   nextReviewDate: string;
@@ -32,7 +31,6 @@ export function emptyRiskFieldValues(): RiskFieldValues {
     likelihood: 3,
     impact: 3,
     treatmentStrategy: '',
-    treatmentNote: '',
     residualScore: '',
     notes: '',
     nextReviewDate: '',
@@ -191,28 +189,16 @@ export function RiskFields({
         </div>
       </div>
 
-      <div className="field-row">
-        <div className="field">
-          <label className="field-label">Treatment Note</label>
-          <input
-            className="input"
-            style={{ fontFamily: 'var(--font-chrome)' }}
-            value={values.treatmentNote}
-            onChange={(e) => onChange('treatmentNote', e.target.value)}
-            disabled={disabled}
-          />
-        </div>
-        <div className="field">
-          <label className="field-label">Next Review Date</label>
-          <input
-            className="input"
-            style={{ fontFamily: 'var(--font-chrome)' }}
-            type="date"
-            value={values.nextReviewDate}
-            onChange={(e) => onChange('nextReviewDate', e.target.value)}
-            disabled={disabled}
-          />
-        </div>
+      <div className="field">
+        <label className="field-label">Next Review Date</label>
+        <input
+          className="input"
+          style={{ fontFamily: 'var(--font-chrome)' }}
+          type="date"
+          value={values.nextReviewDate}
+          onChange={(e) => onChange('nextReviewDate', e.target.value)}
+          disabled={disabled}
+        />
       </div>
 
       <div className="field" style={{ marginBottom: 0 }}>

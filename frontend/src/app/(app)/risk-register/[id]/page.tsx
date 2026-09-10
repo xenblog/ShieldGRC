@@ -28,7 +28,6 @@ function toFieldValues(risk: RiskDetail): RiskFieldValues {
     likelihood: risk.likelihood,
     impact: risk.impact,
     treatmentStrategy: risk.treatmentStrategy ?? '',
-    treatmentNote: risk.treatmentNote ?? '',
     residualScore: risk.residualScore ?? '',
     notes: risk.notes ?? '',
     nextReviewDate: risk.nextReviewDate ? risk.nextReviewDate.slice(0, 10) : '',
