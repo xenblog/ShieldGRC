@@ -101,15 +101,25 @@ export class DashboardsService {
   private async frameworkCoverage(user: AuthenticatedUser, orgUnitId?: string) {
     const frameworks = await this.prisma.framework.findMany({
       where: this.scope.orgUnitWhere(user, orgUnitId),
-      include: { controlLinks: { include: { control: { select: { effectiveness: true } } } } },
+      include: {
+        controls: { include: { controlLinks: { include: { control: { select: { id: true, effectiveness: true } } } } } },
+      },
     });
     return frameworks.map((f) => {
-      const controls = f.controlLinks.map((l) => l.control);
-      const effective = controls.filter((c) => c.effectiveness === ControlEffectiveness.EFFECTIVE).length;
+      // Dedupe: a Control mapped to more than one clause of the same
+      // Framework must only count once towards its coverage percentage.
+      const controlsById = new Map<string, ControlEffectiveness>();
+      for (const clause of f.controls) {
+        for (const link of clause.controlLinks) {
+          controlsById.set(link.control.id, link.control.effectiveness);
+        }
+      }
+      const effectiveness = Array.from(controlsById.values());
+      const effective = effectiveness.filter((e) => e === ControlEffectiveness.EFFECTIVE).length;
       return {
         frameworkId: f.id,
         name: f.name,
-        coveragePercent: controls.length > 0 ? Math.round((effective / controls.length) * 100) : 0,
+        coveragePercent: effectiveness.length > 0 ? Math.round((effective / effectiveness.length) * 100) : 0,
       };
     });
   }

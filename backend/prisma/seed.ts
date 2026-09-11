@@ -1,9 +1,10 @@
 /* eslint-disable no-console */
-import { PrismaClient, UserRole, RiskStatus, TreatmentStrategy, NistCsfFunction, AssessmentStatus, TreatmentActionStatus, ControlType, ControlFrequency, ControlEffectiveness, TestResult, TestMethod } from '@prisma/client';
+import { PrismaClient, UserRole, RiskStatus, TreatmentStrategy, NistCsfFunction, AssessmentStatus, TreatmentActionStatus, ControlType, ControlFrequency, ControlEffectiveness, TestResult, TestMethod, BusinessProcessCriticalityTier } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import * as fs from 'fs';
 import * as path from 'path';
-import { recalculateRiskScores } from '../src/common/scoring/scoring.util';
+import { computeScore, scoreToBand } from '../src/common/scoring/scoring.util';
+import { ControlBasedResidualScoringStrategy } from '../src/common/scoring/residual-scoring.strategy';
 
 const prisma = new PrismaClient();
 
@@ -42,11 +43,13 @@ async function main() {
   // Category taxonomy (configurable, admin-editable)
   // ---------------------------------------------------------------------
   const categoryNames = [
-    'IT-sikkerhed',
-    'Informationssikkerhed',
-    'AI-governance',
-    'Leverandørkæde',
-    'Fysisk sikkerhed',
+    'Access Control',
+    'Threat / Malware',
+    'Data Protection',
+    'Third Party',
+    'Business Continuity',
+    'Vulnerability Mgmt',
+    'Cryptography',
   ];
   const categories: Record<string, Awaited<ReturnType<typeof prisma.category.upsert>>> = {};
   for (let i = 0; i < categoryNames.length; i++) {
@@ -57,11 +60,13 @@ async function main() {
       create: { name, sortOrder: i },
     });
   }
-  const catIT = categories['IT-sikkerhed'];
-  const catInfo = categories['Informationssikkerhed'];
-  const catAI = categories['AI-governance'];
-  const catSupplier = categories['Leverandørkæde'];
-  const catPhysical = categories['Fysisk sikkerhed'];
+  const catAccess = categories['Access Control'];
+  const catThreat = categories['Threat / Malware'];
+  const catData = categories['Data Protection'];
+  const catThirdParty = categories['Third Party'];
+  const catContinuity = categories['Business Continuity'];
+  const catVuln = categories['Vulnerability Mgmt'];
+  const catCrypto = categories['Cryptography'];
 
   // ---------------------------------------------------------------------
   // Users
@@ -180,7 +185,7 @@ async function main() {
     key: string;
     title: string;
     description: string;
-    category: typeof catIT;
+    category: typeof catAccess;
     orgUnitId: string;
     ownerId: string;
     status: RiskStatus;
@@ -188,9 +193,10 @@ async function main() {
     impact: number;
     treatmentStrategy?: TreatmentStrategy;
     treatmentNote?: string;
-    // Manually entered, not derived from a likelihood/impact pair - see
-    // scoring.util.ts.
-    residualScore?: number;
+    // Manual override for the live-computed residual score - see
+    // ResidualScoringService. Most seed risks leave this unset so the
+    // computed value (from any linked Controls added below) shows through.
+    residualScoreOverride?: number;
     notes?: string;
     nextReviewDate?: Date;
   }
@@ -201,7 +207,7 @@ async function main() {
       title: 'Utilstrækkelig MFA-dækning på fjernadgang',
       description:
         'Ikke alle systemer med ekstern adgang kræver multi-faktor autentificering, hvilket øger risikoen for kontokompromittering.',
-      category: catIT,
+      category: catAccess,
       orgUnitId: orgAps.id,
       ownerId: riskOwnerAps.id,
       status: RiskStatus.MITIGATING,
@@ -209,14 +215,15 @@ async function main() {
       impact: 4,
       treatmentStrategy: TreatmentStrategy.REDUCE,
       treatmentNote: 'Udrulning af MFA til alle fjernadgangsløsninger i gang.',
-      residualScore: 6,
+      // No override - linked to CTL-001 below, so residualScore is the
+      // live-computed value.
       nextReviewDate: daysFromNow(60),
     },
     {
       key: 'firmware',
       title: 'Forældede firmware-versioner på lagerstyringssystemer',
       description: 'Flere lagerstyringsenheder kører firmware uden aktiv sikkerhedsopdatering fra leverandøren.',
-      category: catIT,
+      category: catVuln,
       orgUnitId: orgLogistik.id,
       ownerId: riskOwnerLogistik.id,
       status: RiskStatus.ASSESSED,
@@ -228,7 +235,7 @@ async function main() {
       key: 'kryptering',
       title: 'Manglende kryptering af bærbare enheder',
       description: 'En del af de udleverede bærbare computere i Foodservice-divisionen har ikke fuld diskkryptering aktiveret.',
-      category: catInfo,
+      category: catCrypto,
       orgUnitId: orgFoodservice.id,
       ownerId: riskOwnerFoodservice.id,
       status: RiskStatus.MITIGATING,
@@ -242,7 +249,7 @@ async function main() {
       key: 'logging',
       title: 'Utilstrækkelig logging af adgang til kundedata',
       description: 'Adgang til systemer med persondata om kunder logges ikke konsistent på tværs af platforme.',
-      category: catInfo,
+      category: catData,
       orgUnitId: orgAps.id,
       ownerId: riskOwnerAps.id,
       status: RiskStatus.IDENTIFIED,
@@ -254,7 +261,7 @@ async function main() {
       key: 'ai-governance',
       title: 'AI-model til efterspørgselsprognose mangler governance',
       description: 'Den interne AI-model, der bruges til efterspørgselsprognoser, har ikke en dokumenteret ejerskabs- eller kontrolstruktur.',
-      category: catAI,
+      category: catData,
       orgUnitId: orgAps.id,
       ownerId: riskOwnerAps.id,
       status: RiskStatus.IDENTIFIED,
@@ -266,7 +273,7 @@ async function main() {
       key: 'skygge-ai',
       title: 'Skygge-AI-værktøjer anvendt af medarbejdere',
       description: 'Medarbejdere anvender eksterne generative AI-værktøjer uden central godkendelse, herunder til dokumenter med interne data.',
-      category: catAI,
+      category: catData,
       orgUnitId: orgLogistik.id,
       ownerId: riskOwnerLogistik.id,
       status: RiskStatus.ASSESSED,
@@ -278,7 +285,7 @@ async function main() {
       key: 'leverandoer-beredskab',
       title: 'Kritisk leverandør uden dokumenteret beredskabsplan',
       description: 'En nøgleleverandør til lagerdriften kan ikke fremvise en opdateret og testet beredskabsplan.',
-      category: catSupplier,
+      category: catThirdParty,
       orgUnitId: orgLogistik.id,
       ownerId: riskOwnerLogistik.id,
       status: RiskStatus.MITIGATING,
@@ -286,14 +293,15 @@ async function main() {
       impact: 5,
       treatmentStrategy: TreatmentStrategy.TRANSFER,
       treatmentNote: 'Kontraktkrav om beredskabsplan under forhandling.',
-      residualScore: 8,
+      // No override - linked to CTL-013 below (currently FAIL), so
+      // residualScore is the live-computed value.
       nextReviewDate: daysFromNow(60),
     },
     {
       key: 'koeletransport',
       title: 'Enkeltleverandør-afhængighed for køletransport',
       description: 'Størstedelen af den kølede transportkapacitet leveres af én enkelt leverandør uden reel backup-kapacitet.',
-      category: catSupplier,
+      category: catContinuity,
       orgUnitId: orgFoodservice.id,
       ownerId: riskOwnerFoodservice.id,
       status: RiskStatus.ACCEPTED,
@@ -301,14 +309,14 @@ async function main() {
       impact: 4,
       treatmentStrategy: TreatmentStrategy.ACCEPT,
       treatmentNote: 'Ledelsen har accepteret risikoen givet manglende reelle alternativer på kort sigt.',
-      residualScore: 16,
+      residualScoreOverride: 16,
       nextReviewDate: daysFromNow(180),
     },
     {
       key: 'adgangskontrol-lager',
       title: 'Utilstrækkelig adgangskontrol i lagerhaller',
       description: 'Adgangskort deles i praksis mellem flere medarbejdere i enkelte lagerhaller.',
-      category: catPhysical,
+      category: catAccess,
       orgUnitId: orgLogistik.id,
       ownerId: riskOwnerLogistik.id,
       status: RiskStatus.IDENTIFIED,
@@ -320,7 +328,7 @@ async function main() {
       key: 'brandsikring',
       title: 'Manglende brandsikring i serverrum',
       description: 'Et af de mindre serverrum mangler automatisk brandslukningsanlæg.',
-      category: catPhysical,
+      category: catContinuity,
       orgUnitId: orgAps.id,
       ownerId: riskOwnerAps.id,
       status: RiskStatus.MITIGATING,
@@ -334,7 +342,7 @@ async function main() {
       key: 'phishing',
       title: 'Phishing-modstandsdygtighed blandt medarbejdere',
       description: 'Seneste phishing-simulation viste en klikrate over målsætningen blandt Foodservice-medarbejdere.',
-      category: catIT,
+      category: catThreat,
       orgUnitId: orgFoodservice.id,
       ownerId: riskOwnerFoodservice.id,
       status: RiskStatus.MITIGATING,
@@ -342,14 +350,15 @@ async function main() {
       impact: 3,
       treatmentStrategy: TreatmentStrategy.REDUCE,
       treatmentNote: 'Skærpet awareness-træningsprogram igangsat.',
-      residualScore: 6,
+      // No override - linked to CTL-005 below, so residualScore is the
+      // live-computed value.
       nextReviewDate: daysFromNow(45),
     },
     {
       key: 'ot-it-segmentering',
       title: 'Manglende segmentering af OT/IT-netværk på lager',
       description: 'Driftsteknologi (OT) på automatiserede lagre er ikke tilstrækkeligt segmenteret fra det almindelige IT-netværk.',
-      category: catIT,
+      category: catAccess,
       orgUnitId: orgLogistik.id,
       ownerId: riskOwnerLogistik.id,
       status: RiskStatus.ASSESSED,
@@ -361,7 +370,7 @@ async function main() {
       key: 'gdpr-deling',
       title: 'GDPR-efterlevelse ved deling af persondata med leverandører',
       description: 'Historisk manglede der databehandleraftaler med enkelte leverandører, der modtog persondata.',
-      category: catInfo,
+      category: catData,
       orgUnitId: orgFoodservice.id,
       ownerId: riskOwnerFoodservice.id,
       status: RiskStatus.CLOSED,
@@ -369,14 +378,14 @@ async function main() {
       impact: 4,
       treatmentStrategy: TreatmentStrategy.REDUCE,
       treatmentNote: 'Databehandleraftaler er nu på plads med alle relevante leverandører.',
-      residualScore: 2,
+      residualScoreOverride: 2,
       nextReviewDate: daysFromNow(365),
     },
     {
       key: 'offsite-backup',
       title: 'Manglende offsite-backup af kritiske systemer',
       description: 'Backup af enkelte forretningskritiske systemer opbevares kun on-premise.',
-      category: catIT,
+      category: catContinuity,
       orgUnitId: orgAps.id,
       ownerId: riskOwnerAps.id,
       status: RiskStatus.MITIGATING,
@@ -391,7 +400,7 @@ async function main() {
       key: 'besoegsregistrering',
       title: 'Mindre uoverensstemmelse i besøgsregistrering',
       description: 'Enkelte besøgende i hovedkontoret er ikke konsekvent registreret ved indgang.',
-      category: catPhysical,
+      category: catAccess,
       orgUnitId: orgAps.id,
       ownerId: riskOwnerAps.id,
       status: RiskStatus.IDENTIFIED,
@@ -408,11 +417,11 @@ async function main() {
       risks[seed.key] = existing;
       continue;
     }
-    const scores = recalculateRiskScores({
-      likelihood: seed.likelihood,
-      impact: seed.impact,
-      residualScore: seed.residualScore ?? null,
-    });
+    const inherent = computeScore(seed.likelihood, seed.impact);
+    // residualScore/residualBand/residualSource get their real value below,
+    // once Controls exist and can be linked - see "Recompute residual
+    // scores" further down (mirrors ResidualScoringService, which the seed
+    // script bypasses by writing directly via Prisma).
     risks[seed.key] = await prisma.risk.create({
       data: {
         title: seed.title,
@@ -423,12 +432,11 @@ async function main() {
         status: seed.status,
         likelihood: seed.likelihood,
         impact: seed.impact,
-        inherentScore: scores.inherentScore,
-        inherentBand: scores.inherentBand,
+        inherentScore: inherent.score,
+        inherentBand: inherent.band,
         treatmentStrategy: seed.treatmentStrategy,
         treatmentNote: seed.treatmentNote,
-        residualScore: scores.residualScore,
-        residualBand: scores.residualBand,
+        residualScoreOverride: seed.residualScoreOverride ?? null,
         notes: seed.notes,
         nextReviewDate: seed.nextReviewDate,
       },
@@ -640,38 +648,86 @@ async function main() {
   );
 
   // ---------------------------------------------------------------------
+  // Framework Controls - individual clauses within each Framework that a
+  // Control Library Control maps to (e.g. ISO 27001:2022 "A.5.1"), not the
+  // Framework as a whole.
+  //
+  // NOTE: this is a small, illustrative starter catalog, not a verified or
+  // exhaustive transcription of the real standards - ISO 27001:2022 Annex A
+  // alone has 93 controls. Verify codes/titles against your own copy of
+  // each standard before relying on this for a real audit or certification;
+  // add the rest via POST /api/framework-controls as needed.
+  // ---------------------------------------------------------------------
+  interface FrameworkControlSeed {
+    key: string;
+    framework: typeof nis2;
+    code: string;
+    title: string;
+  }
+
+  const frameworkControlSeeds: FrameworkControlSeed[] = [
+    { key: 'iso5.1', framework: iso27001, code: 'A.5.1', title: 'Policies for information security' },
+    { key: 'iso5.18', framework: iso27001, code: 'A.5.18', title: 'Access rights' },
+    { key: 'iso5.19', framework: iso27001, code: 'A.5.19', title: 'Information security in supplier relationships' },
+    { key: 'iso5.20', framework: iso27001, code: 'A.5.20', title: 'Addressing information security within supplier agreements' },
+    { key: 'iso6.3', framework: iso27001, code: 'A.6.3', title: 'Information security awareness, education and training' },
+    { key: 'iso7.2', framework: iso27001, code: 'A.7.2', title: 'Physical entry' },
+    { key: 'iso7.5', framework: iso27001, code: 'A.7.5', title: 'Protecting against physical and environmental threats' },
+    { key: 'iso8.5', framework: iso27001, code: 'A.8.5', title: 'Secure authentication' },
+    { key: 'iso8.8', framework: iso27001, code: 'A.8.8', title: 'Management of technical vulnerabilities' },
+    { key: 'iso8.13', framework: iso27001, code: 'A.8.13', title: 'Information backup' },
+    { key: 'iso8.16', framework: iso27001, code: 'A.8.16', title: 'Monitoring activities' },
+    { key: 'iso8.22', framework: iso27001, code: 'A.8.22', title: 'Segregation of networks' },
+    { key: 'iso8.24', framework: iso27001, code: 'A.8.24', title: 'Use of cryptography' },
+    { key: 'gdpr28', framework: gdpr, code: 'Art. 28', title: 'Processor' },
+    { key: 'gdpr32', framework: gdpr, code: 'Art. 32', title: 'Security of processing' },
+    { key: 'nis21', framework: nis2, code: 'Art. 21', title: 'Cybersecurity risk-management measures' },
+  ];
+
+  const frameworkControls: Record<string, Awaited<ReturnType<typeof prisma.frameworkControl.upsert>>> = {};
+  for (const seed of frameworkControlSeeds) {
+    frameworkControls[seed.key] = await prisma.frameworkControl.upsert({
+      where: { frameworkId_code: { frameworkId: seed.framework.id, code: seed.code } },
+      update: {},
+      create: { frameworkId: seed.framework.id, code: seed.code, title: seed.title },
+    });
+  }
+
+  // ---------------------------------------------------------------------
   // Control Library
   // ---------------------------------------------------------------------
   interface ControlSeed {
     code: string;
     name: string;
-    category: typeof catIT;
+    category: typeof catAccess;
     orgUnitId: string;
     type: ControlType;
     frequency: ControlFrequency;
     nistCsfFunction?: NistCsfFunction;
-    frameworks: (typeof nis2)[];
+    // Keys into frameworkControlSeeds above - the specific clause(s) this
+    // control satisfies, not whole Frameworks.
+    frameworkControlKeys: string[];
   }
 
   const controlSeeds: ControlSeed[] = [
-    { code: 'CTL-001', name: 'Multi-faktor autentificering for fjernadgang', category: catIT, orgUnitId: orgAps.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.CONTINUOUS, nistCsfFunction: NistCsfFunction.PROTECT, frameworks: [nis2, iso27001] },
-    { code: 'CTL-002', name: 'Kvartalsvis sårbarhedsscanning', category: catIT, orgUnitId: orgAps.id, type: ControlType.DETECTIVE, frequency: ControlFrequency.QUARTERLY, nistCsfFunction: NistCsfFunction.DETECT, frameworks: [nis2, iso27001] },
-    { code: 'CTL-003', name: 'Patch management for serverinfrastruktur', category: catIT, orgUnitId: orgLogistik.id, type: ControlType.CORRECTIVE, frequency: ControlFrequency.MONTHLY, nistCsfFunction: NistCsfFunction.PROTECT, frameworks: [nis2] },
-    { code: 'CTL-004', name: 'Netværkssegmentering mellem IT og OT', category: catIT, orgUnitId: orgLogistik.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.ANNUAL, nistCsfFunction: NistCsfFunction.PROTECT, frameworks: [nis2] },
-    { code: 'CTL-005', name: 'Phishing-simulation og awareness-træning', category: catIT, orgUnitId: orgFoodservice.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.QUARTERLY, nistCsfFunction: NistCsfFunction.PROTECT, frameworks: [iso27001] },
-    { code: 'CTL-018', name: 'Offsite backup af kritiske systemer', category: catIT, orgUnitId: orgAps.id, type: ControlType.CORRECTIVE, frequency: ControlFrequency.WEEKLY, nistCsfFunction: NistCsfFunction.RECOVER, frameworks: [nis2, iso27001] },
-    { code: 'CTL-006', name: 'Kryptering af data på bærbare enheder', category: catInfo, orgUnitId: orgFoodservice.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.CONTINUOUS, frameworks: [iso27001, gdpr] },
-    { code: 'CTL-007', name: 'Adgangsstyring og periodisk rettighedsgennemgang', category: catInfo, orgUnitId: orgAps.id, type: ControlType.DETECTIVE, frequency: ControlFrequency.QUARTERLY, frameworks: [nis2, iso27001] },
-    { code: 'CTL-008', name: 'Logning og overvågning af adgang til persondata', category: catInfo, orgUnitId: orgAps.id, type: ControlType.DETECTIVE, frequency: ControlFrequency.CONTINUOUS, frameworks: [nis2, iso27001, gdpr] },
-    { code: 'CTL-009', name: 'Databehandleraftaler med leverandører', category: catInfo, orgUnitId: orgFoodservice.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.ANNUAL, frameworks: [gdpr] },
-    { code: 'CTL-010', name: 'Governance-proces for AI-systemer', category: catAI, orgUnitId: orgAps.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.ANNUAL, frameworks: [] },
-    { code: 'CTL-011', name: 'Register over AI-anvendelser', category: catAI, orgUnitId: orgLogistik.id, type: ControlType.DETECTIVE, frequency: ControlFrequency.QUARTERLY, frameworks: [] },
-    { code: 'CTL-012', name: 'Due diligence af kritiske leverandører', category: catSupplier, orgUnitId: orgLogistik.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.ANNUAL, frameworks: [nis2] },
-    { code: 'CTL-013', name: 'Beredskabsplan-gennemgang for nøgleleverandører', category: catSupplier, orgUnitId: orgLogistik.id, type: ControlType.DETECTIVE, frequency: ControlFrequency.ANNUAL, frameworks: [nis2] },
-    { code: 'CTL-014', name: 'Alternativ leverandørkortlægning for køletransport', category: catSupplier, orgUnitId: orgFoodservice.id, type: ControlType.COMPENSATING, frequency: ControlFrequency.ANNUAL, frameworks: [] },
-    { code: 'CTL-015', name: 'Adgangskontrol (ID-kort) til lagerfaciliteter', category: catPhysical, orgUnitId: orgLogistik.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.CONTINUOUS, frameworks: [iso27001] },
-    { code: 'CTL-016', name: 'Brandsikringssystem i serverrum', category: catPhysical, orgUnitId: orgAps.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.ANNUAL, frameworks: [iso27001] },
-    { code: 'CTL-017', name: 'Besøgsregistrering og eskortepolitik', category: catPhysical, orgUnitId: orgAps.id, type: ControlType.DETECTIVE, frequency: ControlFrequency.CONTINUOUS, frameworks: [iso27001] },
+    { code: 'CTL-001', name: 'Multi-faktor autentificering for fjernadgang', category: catAccess, orgUnitId: orgAps.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.CONTINUOUS, nistCsfFunction: NistCsfFunction.PROTECT, frameworkControlKeys: ['iso8.5', 'nis21'] },
+    { code: 'CTL-002', name: 'Kvartalsvis sårbarhedsscanning', category: catVuln, orgUnitId: orgAps.id, type: ControlType.DETECTIVE, frequency: ControlFrequency.QUARTERLY, nistCsfFunction: NistCsfFunction.DETECT, frameworkControlKeys: ['iso8.8', 'nis21'] },
+    { code: 'CTL-003', name: 'Patch management for serverinfrastruktur', category: catVuln, orgUnitId: orgLogistik.id, type: ControlType.CORRECTIVE, frequency: ControlFrequency.MONTHLY, nistCsfFunction: NistCsfFunction.PROTECT, frameworkControlKeys: ['iso8.8'] },
+    { code: 'CTL-004', name: 'Netværkssegmentering mellem IT og OT', category: catAccess, orgUnitId: orgLogistik.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.ANNUAL, nistCsfFunction: NistCsfFunction.PROTECT, frameworkControlKeys: ['iso8.22', 'nis21'] },
+    { code: 'CTL-005', name: 'Phishing-simulation og awareness-træning', category: catThreat, orgUnitId: orgFoodservice.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.QUARTERLY, nistCsfFunction: NistCsfFunction.PROTECT, frameworkControlKeys: ['iso6.3'] },
+    { code: 'CTL-018', name: 'Offsite backup af kritiske systemer', category: catContinuity, orgUnitId: orgAps.id, type: ControlType.CORRECTIVE, frequency: ControlFrequency.WEEKLY, nistCsfFunction: NistCsfFunction.RECOVER, frameworkControlKeys: ['iso8.13', 'nis21'] },
+    { code: 'CTL-006', name: 'Kryptering af data på bærbare enheder', category: catCrypto, orgUnitId: orgFoodservice.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.CONTINUOUS, frameworkControlKeys: ['iso8.24', 'gdpr32'] },
+    { code: 'CTL-007', name: 'Adgangsstyring og periodisk rettighedsgennemgang', category: catAccess, orgUnitId: orgAps.id, type: ControlType.DETECTIVE, frequency: ControlFrequency.QUARTERLY, frameworkControlKeys: ['iso5.18'] },
+    { code: 'CTL-008', name: 'Logning og overvågning af adgang til persondata', category: catData, orgUnitId: orgAps.id, type: ControlType.DETECTIVE, frequency: ControlFrequency.CONTINUOUS, frameworkControlKeys: ['iso8.16', 'gdpr32'] },
+    { code: 'CTL-009', name: 'Databehandleraftaler med leverandører', category: catThirdParty, orgUnitId: orgFoodservice.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.ANNUAL, frameworkControlKeys: ['gdpr28'] },
+    { code: 'CTL-010', name: 'Governance-proces for AI-systemer', category: catData, orgUnitId: orgAps.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.ANNUAL, frameworkControlKeys: ['iso5.1'] },
+    { code: 'CTL-011', name: 'Register over AI-anvendelser', category: catData, orgUnitId: orgLogistik.id, type: ControlType.DETECTIVE, frequency: ControlFrequency.QUARTERLY, frameworkControlKeys: [] },
+    { code: 'CTL-012', name: 'Due diligence af kritiske leverandører', category: catThirdParty, orgUnitId: orgLogistik.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.ANNUAL, frameworkControlKeys: ['iso5.19'] },
+    { code: 'CTL-013', name: 'Beredskabsplan-gennemgang for nøgleleverandører', category: catThirdParty, orgUnitId: orgLogistik.id, type: ControlType.DETECTIVE, frequency: ControlFrequency.ANNUAL, frameworkControlKeys: ['iso5.20'] },
+    { code: 'CTL-014', name: 'Alternativ leverandørkortlægning for køletransport', category: catContinuity, orgUnitId: orgFoodservice.id, type: ControlType.COMPENSATING, frequency: ControlFrequency.ANNUAL, frameworkControlKeys: ['nis21'] },
+    { code: 'CTL-015', name: 'Adgangskontrol (ID-kort) til lagerfaciliteter', category: catAccess, orgUnitId: orgLogistik.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.CONTINUOUS, frameworkControlKeys: ['iso7.2'] },
+    { code: 'CTL-016', name: 'Brandsikringssystem i serverrum', category: catContinuity, orgUnitId: orgAps.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.ANNUAL, frameworkControlKeys: ['iso7.5'] },
+    { code: 'CTL-017', name: 'Besøgsregistrering og eskortepolitik', category: catAccess, orgUnitId: orgAps.id, type: ControlType.DETECTIVE, frequency: ControlFrequency.CONTINUOUS, frameworkControlKeys: ['iso7.2'] },
   ];
 
   const controls: Record<string, Awaited<ReturnType<typeof prisma.control.create>>> = {};
@@ -687,7 +743,9 @@ async function main() {
           orgUnitId: seed.orgUnitId,
           type: seed.type,
           frequency: seed.frequency,
-          frameworkLinks: { create: seed.frameworks.map((f) => ({ frameworkId: f.id })) },
+          frameworkControlLinks: {
+            create: seed.frameworkControlKeys.map((key) => ({ frameworkControlId: frameworkControls[key].id })),
+          },
         },
       });
     }
@@ -798,6 +856,182 @@ async function main() {
       where: { id: control.id },
       data: { effectiveness, lastTestedAt: latest?.testedDate ?? null },
     });
+  }
+
+  // ---------------------------------------------------------------------
+  // Risk <-> Control links (RiskControl) - demonstrates the propagation
+  // engine: each linked Control's current effectiveness feeds the linked
+  // Risk's computed residual score below.
+  // ---------------------------------------------------------------------
+  const riskControlLinkSeeds: { riskKey: string; controlCode: string }[] = [
+    { riskKey: 'mfa', controlCode: 'CTL-001' },
+    { riskKey: 'firmware', controlCode: 'CTL-003' },
+    { riskKey: 'kryptering', controlCode: 'CTL-006' },
+    { riskKey: 'logging', controlCode: 'CTL-008' },
+    { riskKey: 'leverandoer-beredskab', controlCode: 'CTL-013' },
+    { riskKey: 'phishing', controlCode: 'CTL-005' },
+  ];
+  for (const link of riskControlLinkSeeds) {
+    await prisma.riskControl.upsert({
+      where: { riskId_controlId: { riskId: risks[link.riskKey].id, controlId: controls[link.controlCode].id } },
+      update: {},
+      create: { riskId: risks[link.riskKey].id, controlId: controls[link.controlCode].id },
+    });
+  }
+
+  // Recompute residualScore/residualBand/residualSource for every risk,
+  // mirroring ResidualScoringService (the seed script writes directly via
+  // Prisma, bypassing the service layer): a manual override wins, otherwise
+  // it's derived from currently linked Controls' effectiveness.
+  const residualStrategy = new ControlBasedResidualScoringStrategy();
+  for (const risk of Object.values(risks)) {
+    const links = await prisma.riskControl.findMany({
+      where: { riskId: risk.id },
+      include: { control: { select: { effectiveness: true } } },
+    });
+    const computed = residualStrategy.computeResidualScore(
+      risk.inherentScore,
+      links.map((l) => l.control.effectiveness),
+    );
+    const residualScore = risk.residualScoreOverride ?? computed;
+    await prisma.risk.update({
+      where: { id: risk.id },
+      data: {
+        residualScore,
+        residualBand: residualScore != null ? scoreToBand(residualScore) : null,
+        residualSource: risk.residualScoreOverride != null ? 'MANUAL' : computed != null ? 'COMPUTED' : null,
+      },
+    });
+  }
+
+  // ---------------------------------------------------------------------
+  // Business Impact Analysis (BIA) Register
+  // ---------------------------------------------------------------------
+  interface BusinessProcessSeed {
+    key: string;
+    name: string;
+    description: string;
+    orgUnitId: string;
+    ownerId: string;
+    criticalityTier: BusinessProcessCriticalityTier;
+    rtoMinutes?: number;
+    rpoMinutes?: number;
+    // CIA triad rating (1-3: Low/Medium/High) - independent of criticalityTier.
+    confidentialityScore: number;
+    integrityScore: number;
+    availabilityScore: number;
+    riskKeys: string[];
+    // Other seeded processes (by key) this one depends on - linked in a
+    // second pass below, once every process has been created.
+    dependsOnKeys?: string[];
+  }
+
+  const businessProcessSeeds: BusinessProcessSeed[] = [
+    {
+      key: 'lagerstyring',
+      name: 'Lagerstyring og pluk',
+      description: 'Modtagelse, lagerstyring og plukning af varer på de automatiserede lagre.',
+      orgUnitId: orgLogistik.id,
+      ownerId: riskOwnerLogistik.id,
+      criticalityTier: BusinessProcessCriticalityTier.CRITICAL,
+      rtoMinutes: 240,
+      rpoMinutes: 60,
+      confidentialityScore: 1,
+      integrityScore: 2,
+      availabilityScore: 3,
+      riskKeys: ['firmware', 'ot-it-segmentering', 'adgangskontrol-lager'],
+    },
+    {
+      key: 'koeletransport',
+      name: 'Kølet transport til Foodservice-kunder',
+      description: 'Distribution af kølede og frosne varer til Foodservice-kunder.',
+      orgUnitId: orgFoodservice.id,
+      ownerId: riskOwnerFoodservice.id,
+      criticalityTier: BusinessProcessCriticalityTier.CRITICAL,
+      rtoMinutes: 120,
+      rpoMinutes: 30,
+      confidentialityScore: 1,
+      integrityScore: 1,
+      availabilityScore: 3,
+      riskKeys: ['koeletransport', 'leverandoer-beredskab'],
+      // Cold transport can't dispatch orders that haven't been picked yet.
+      dependsOnKeys: ['lagerstyring'],
+    },
+    {
+      key: 'kundedata',
+      name: 'Kundedatabehandling',
+      description: 'Behandling og opbevaring af persondata om kunder på tværs af koncernens systemer.',
+      orgUnitId: orgAps.id,
+      ownerId: riskOwnerAps.id,
+      criticalityTier: BusinessProcessCriticalityTier.HIGH,
+      rtoMinutes: 480,
+      rpoMinutes: 240,
+      confidentialityScore: 3,
+      integrityScore: 2,
+      availabilityScore: 2,
+      riskKeys: ['logging', 'gdpr-deling'],
+    },
+    {
+      key: 'besoegshaandtering',
+      name: 'Besøgshåndtering på hovedkontor',
+      description: 'Registrering og eskorte af eksterne besøgende på hovedkontoret.',
+      orgUnitId: orgAps.id,
+      ownerId: riskOwnerAps.id,
+      criticalityTier: BusinessProcessCriticalityTier.LOW,
+      confidentialityScore: 1,
+      integrityScore: 1,
+      availabilityScore: 1,
+      riskKeys: ['besoegsregistrering'],
+    },
+  ];
+
+  const businessProcesses: Record<string, Awaited<ReturnType<typeof prisma.businessProcess.create>>> = {};
+  for (const seed of businessProcessSeeds) {
+    const existing = await prisma.businessProcess.findFirst({ where: { name: seed.name } });
+    const process =
+      existing ??
+      (await prisma.businessProcess.create({
+        data: {
+          name: seed.name,
+          description: seed.description,
+          orgUnitId: seed.orgUnitId,
+          ownerId: seed.ownerId,
+          criticalityTier: seed.criticalityTier,
+          rtoMinutes: seed.rtoMinutes,
+          rpoMinutes: seed.rpoMinutes,
+          confidentialityScore: seed.confidentialityScore,
+          integrityScore: seed.integrityScore,
+          availabilityScore: seed.availabilityScore,
+        },
+      }));
+    businessProcesses[seed.key] = process;
+    for (const riskKey of seed.riskKeys) {
+      await prisma.businessProcessRisk.upsert({
+        where: { businessProcessId_riskId: { businessProcessId: process.id, riskId: risks[riskKey].id } },
+        update: {},
+        create: { businessProcessId: process.id, riskId: risks[riskKey].id },
+      });
+    }
+  }
+
+  // Second pass: link Business Process dependencies (dependsOnKeys) now
+  // that every process has been created.
+  for (const seed of businessProcessSeeds) {
+    for (const dependsOnKey of seed.dependsOnKeys ?? []) {
+      await prisma.businessProcessDependency.upsert({
+        where: {
+          businessProcessId_dependsOnId: {
+            businessProcessId: businessProcesses[seed.key].id,
+            dependsOnId: businessProcesses[dependsOnKey].id,
+          },
+        },
+        update: {},
+        create: {
+          businessProcessId: businessProcesses[seed.key].id,
+          dependsOnId: businessProcesses[dependsOnKey].id,
+        },
+      });
+    }
   }
 
   console.log('Seed complete.');

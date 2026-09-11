@@ -3,7 +3,9 @@ import { AuditAction, ControlEffectiveness, Prisma, TestResult } from '@prisma/c
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { OrgUnitScopeService } from '../../common/org-unit-scope/org-unit-scope.service';
 import { AuditService } from '../../common/audit/audit.service';
+import { ResidualScoringService } from '../../common/scoring/residual-scoring.service';
 import { AuthenticatedUser } from '../../common/types/authenticated-user';
+import { riskDisplayCode } from '../../common/display-code/display-code.util';
 import { CreateControlDto } from './dto/create-control.dto';
 import { UpdateControlDto } from './dto/update-control.dto';
 import { QueryControlsDto } from './dto/query-controls.dto';
@@ -25,14 +27,20 @@ export class ControlsService {
     private readonly prisma: PrismaService,
     private readonly scope: OrgUnitScopeService,
     private readonly audit: AuditService,
+    private readonly residualScoring: ResidualScoringService,
   ) {}
 
   private commonInclude() {
     return {
       domainCategory: true,
       orgUnit: true,
-      frameworkLinks: { include: { framework: true } },
+      frameworkControlLinks: { include: { frameworkControl: { include: { framework: { select: { id: true, name: true } } } } } },
     } satisfies Prisma.ControlInclude;
+  }
+
+  private withFrameworkControls<T extends { frameworkControlLinks: { frameworkControl: unknown }[] }>(control: T) {
+    const { frameworkControlLinks, ...rest } = control;
+    return { ...rest, frameworkControls: frameworkControlLinks.map((l) => l.frameworkControl) };
   }
 
   async findAll(user: AuthenticatedUser, query: QueryControlsDto) {
@@ -41,7 +49,7 @@ export class ControlsService {
     if (query.type) where.type = query.type;
     if (query.effectiveness) where.effectiveness = query.effectiveness;
     if (query.frameworkId) {
-      where.frameworkLinks = { some: { frameworkId: query.frameworkId } };
+      where.frameworkControlLinks = { some: { frameworkControl: { frameworkId: query.frameworkId } } };
     }
 
     const controls = await this.prisma.control.findMany({
@@ -49,7 +57,7 @@ export class ControlsService {
       include: this.commonInclude(),
       orderBy: { code: 'asc' },
     });
-    return controls.map((c) => ({ ...c, frameworks: c.frameworkLinks.map((l) => l.framework) }));
+    return controls.map((c) => this.withFrameworkControls(c));
   }
 
   async findOne(id: string, user: AuthenticatedUser) {
@@ -64,6 +72,9 @@ export class ControlsService {
             evidence: true,
           },
         },
+        riskLinks: {
+          include: { risk: { select: { id: true, sequenceNumber: true, title: true, inherentScore: true, inherentBand: true } } },
+        },
       },
     });
     if (!control) throw new NotFoundException('Control not found');
@@ -72,8 +83,8 @@ export class ControlsService {
     const auditHistory = await this.audit.findForEntity('Control', id);
 
     return {
-      ...control,
-      frameworks: control.frameworkLinks.map((l) => l.framework),
+      ...this.withFrameworkControls(control),
+      linkedRisks: control.riskLinks.map((l) => ({ ...l.risk, code: riskDisplayCode(l.risk.sequenceNumber) })),
       auditHistory,
     };
   }
@@ -91,8 +102,8 @@ export class ControlsService {
           orgUnitId: dto.orgUnitId,
           type: dto.type,
           frequency: dto.frequency,
-          frameworkLinks: dto.frameworkIds
-            ? { create: dto.frameworkIds.map((frameworkId) => ({ frameworkId })) }
+          frameworkControlLinks: dto.frameworkControlIds
+            ? { create: dto.frameworkControlIds.map((frameworkControlId) => ({ frameworkControlId })) }
             : undefined,
         },
       });
@@ -118,8 +129,8 @@ export class ControlsService {
     }
 
     await this.prisma.$transaction(async (tx) => {
-      if (dto.frameworkIds) {
-        await tx.controlFramework.deleteMany({ where: { controlId: id } });
+      if (dto.frameworkControlIds) {
+        await tx.controlFrameworkControl.deleteMany({ where: { controlId: id } });
       }
       const updated = await tx.control.update({
         where: { id },
@@ -131,8 +142,8 @@ export class ControlsService {
           orgUnitId: dto.orgUnitId,
           type: dto.type,
           frequency: dto.frequency,
-          frameworkLinks: dto.frameworkIds
-            ? { create: dto.frameworkIds.map((frameworkId) => ({ frameworkId })) }
+          frameworkControlLinks: dto.frameworkControlIds
+            ? { create: dto.frameworkControlIds.map((frameworkControlId) => ({ frameworkControlId })) }
             : undefined,
         },
       });
@@ -155,6 +166,12 @@ export class ControlsService {
     this.scope.assertCanWriteOrgUnit(user, existing.orgUnitId);
 
     await this.prisma.$transaction(async (tx) => {
+      // Capture linked risks before the cascade delete removes the
+      // risk_controls rows, so their residual score can be recomputed
+      // without this Control once it's gone.
+      const linkedRiskIds = (await tx.riskControl.findMany({ where: { controlId: id }, select: { riskId: true } })).map(
+        (l) => l.riskId,
+      );
       await tx.control.delete({ where: { id } });
       await this.audit.record(tx, {
         entityType: 'Control',
@@ -163,13 +180,18 @@ export class ControlsService {
         actorId: user.id,
         before: existing,
       });
+      for (const riskId of linkedRiskIds) {
+        await this.residualScoring.recalculateForRisk(riskId, tx);
+      }
     });
   }
 
   /**
    * Called by ControlTestsService after any test create/update: recomputes
    * the parent Control's denormalized effectiveness/lastTestedAt from
-   * whichever test is now the most recently tested one.
+   * whichever test is now the most recently tested one, then propagates
+   * that change to the residual score of every Risk linked to this Control
+   * (see ResidualScoringService - the propagation engine).
    */
   async recomputeFromLatestTest(controlId: string, tx: Prisma.TransactionClient): Promise<void> {
     const latest = await tx.controlTest.findFirst({
@@ -183,5 +205,6 @@ export class ControlsService {
         lastTestedAt: latest?.testedDate ?? null,
       },
     });
+    await this.residualScoring.recalculateForRisksLinkedToControl(controlId, tx);
   }
 }

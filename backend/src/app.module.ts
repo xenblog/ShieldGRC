@@ -8,6 +8,7 @@ import { LoggerModule } from 'nestjs-pino';
 import { PrismaModule } from './common/prisma/prisma.module';
 import { OrgUnitScopeModule } from './common/org-unit-scope/org-unit-scope.module';
 import { AssessmentProgressModule } from './common/assessment-progress/assessment-progress.module';
+import { ResidualScoringModule } from './common/scoring/residual-scoring.module';
 import { AuditModule } from './common/audit/audit.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -25,7 +26,9 @@ import { MethodologyModule } from './modules/methodology/methodology.module';
 import { ControlsModule } from './modules/controls/controls.module';
 import { ControlTestsModule } from './modules/control-tests/control-tests.module';
 import { FrameworksModule } from './modules/frameworks/frameworks.module';
+import { FrameworkControlsModule } from './modules/framework-controls/framework-controls.module';
 import { DashboardsModule } from './modules/dashboards/dashboards.module';
+import { BusinessProcessesModule } from './modules/business-processes/business-processes.module';
 
 @Module({
   imports: [
@@ -43,6 +46,7 @@ import { DashboardsModule } from './modules/dashboards/dashboards.module';
     PrismaModule,
     OrgUnitScopeModule,
     AssessmentProgressModule,
+    ResidualScoringModule,
     AuditModule,
     AuthModule,
     UsersModule,
@@ -55,7 +59,9 @@ import { DashboardsModule } from './modules/dashboards/dashboards.module';
     ControlsModule,
     ControlTestsModule,
     FrameworksModule,
+    FrameworkControlsModule,
     DashboardsModule,
+    BusinessProcessesModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

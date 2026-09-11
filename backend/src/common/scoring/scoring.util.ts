@@ -1,11 +1,11 @@
 import { ScoreBand } from '@prisma/client';
 
 /**
- * Shared 5x5 qualitative scoring matrix used for both inherent and residual
- * risk scores. Kept as pure functions (no DB/HTTP dependency) so it can be
- * unit tested directly, and so any future caller (a control-test result
- * handler, a completed treatment action handler) can trigger a recalculation
- * without going through the HTTP layer.
+ * Shared 5x5 qualitative scoring matrix (score = likelihood x impact,
+ * banded into Low/Medium/High/Critical). Used for the inherent score and,
+ * via scoreToBand, for the residual score too - see ResidualScoringService
+ * for how the residual score value itself is derived. Kept as pure
+ * functions (no DB/HTTP dependency) so they can be unit tested directly.
  */
 
 export const MIN_SCALE_VALUE = 1;
@@ -44,42 +44,4 @@ export interface ScoreResult {
 export function computeScore(likelihood: number, impact: number): ScoreResult {
   const score = calculateScore(likelihood, impact);
   return { score, band: scoreToBand(score) };
-}
-
-export interface RiskScoringInput {
-  likelihood: number;
-  impact: number;
-  // Manually entered by the risk owner (1-25) - this is intentionally NOT
-  // derived from a residual likelihood/impact pair. Residual scoring is a
-  // placeholder expected to become a computed value once a Control Library
-  // and a Business Impact Analysis exist; until then only its band is
-  // computed, live, from whatever value is currently stored.
-  residualScore?: number | null;
-}
-
-export interface RiskScoringOutput {
-  inherentScore: number;
-  inherentBand: ScoreBand;
-  residualScore: number | null;
-  residualBand: ScoreBand | null;
-}
-
-/**
- * Live scoring: recompute the inherent score/band from likelihood x impact,
- * and (when a residual score is present) its band. Callers (RisksService.
- * create/update) call this every time any underlying value changes rather
- * than caching a stale computed value.
- */
-export function recalculateRiskScores(input: RiskScoringInput): RiskScoringOutput {
-  const inherent = computeScore(input.likelihood, input.impact);
-
-  const residualScore = input.residualScore ?? null;
-  const residualBand = residualScore != null ? scoreToBand(residualScore) : null;
-
-  return {
-    inherentScore: inherent.score,
-    inherentBand: inherent.band,
-    residualScore,
-    residualBand,
-  };
 }

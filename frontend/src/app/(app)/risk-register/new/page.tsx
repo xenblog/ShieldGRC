@@ -11,7 +11,6 @@ function toPayload(values: RiskFieldValues) {
   return {
     ...values,
     treatmentStrategy: values.treatmentStrategy || undefined,
-    residualScore: values.residualScore === '' ? undefined : values.residualScore,
     nextReviewDate: values.nextReviewDate || undefined,
   };
 }

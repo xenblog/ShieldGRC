@@ -24,9 +24,11 @@ export class CreateControlDto {
   @IsEnum(ControlFrequency)
   frequency!: ControlFrequency;
 
+  // Individual Framework clauses this control satisfies (e.g. ISO 27001:2022
+  // "A.5.1"), not whole Frameworks - see FrameworkControl.
   @IsOptional()
   @IsArray()
   @ArrayUnique()
   @IsString({ each: true })
-  frameworkIds?: string[];
+  frameworkControlIds?: string[];
 }

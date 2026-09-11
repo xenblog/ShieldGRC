@@ -11,3 +11,7 @@ export function riskDisplayCode(sequenceNumber: number): string {
 export function assessmentDisplayCode(sequenceNumber: number, startDate: Date): string {
   return `ASS-${startDate.getFullYear()}-${String(sequenceNumber).padStart(3, '0')}`;
 }
+
+export function businessProcessDisplayCode(sequenceNumber: number): string {
+  return `BP-${String(sequenceNumber).padStart(3, '0')}`;
+}

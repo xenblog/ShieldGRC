@@ -133,6 +133,21 @@ enum LinkedEntityType {
   SUPPLIER
 }
 
+enum BusinessProcessCriticalityTier {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+// How Risk.residualScore was last set - COMPUTED when derived live from
+// linked Controls' effectiveness (see ResidualScoringStrategy), MANUAL when
+// the risk owner entered an explicit override. See Risk.residualScoreOverride.
+enum ResidualScoreSource {
+  COMPUTED
+  MANUAL
+}
+
 // ---------------------------------------------------------------------------
 // Org Units & Users
 // ---------------------------------------------------------------------------
@@ -145,47 +160,49 @@ model OrgUnit {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  memberships     UserOrgUnit[]
-  risks           Risk[]
-  assessments     RiskAssessment[]
-  controls        Control[]
-  frameworks      Framework[]
+  memberships       UserOrgUnit[]
+  risks             Risk[]
+  assessments       RiskAssessment[]
+  controls          Control[]
+  frameworks        Framework[]
+  businessProcesses BusinessProcess[]
 
   @@map("org_units")
 }
 
 model User {
-  id    String  @id @default(uuid())
-  email String  @unique
-  name  String
+  id              String            @id @default(uuid())
+  email           String            @unique
+  name            String
   // Null until an Admin assigns one - a JIT-provisioned SSO user has no role
   // (and no org units) until then, so they can authenticate but see no data
   // and no functional nav (see AuthenticatedUser / the frontend's
   // pending-setup screen).
-  role   UserRole?
-  status UserAccountStatus @default(INVITED)
-  source UserSource
+  role            UserRole?
+  status          UserAccountStatus @default(INVITED)
+  source          UserSource
   // Updated on every successful login (any provider).
-  lastLoginAt DateTime?
+  lastLoginAt     DateTime?
   // Local auth (seeded dev admin / any locally-provisioned account). Null for
   // users who only ever authenticate via Entra ID SSO.
-  passwordHash String?
+  passwordHash    String?
   // Set once a user has signed in via Entra ID at least once.
-  azureAdObjectId String?  @unique
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  azureAdObjectId String?           @unique
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
 
-  orgUnits              UserOrgUnit[]
-  ownedRisks            Risk[]                @relation("RiskOwner")
-  ledAssessments        RiskAssessment[]      @relation("AssessmentLead")
-  ownedTreatmentActions TreatmentAction[]     @relation("TreatmentActionOwner")
-  testedControlTests    ControlTest[]         @relation("ControlTester")
-  ownedFrameworks       Framework[]           @relation("FrameworkOwner")
-  uploadedEvidence      Evidence[]            @relation("EvidenceUploader")
-  auditLogEntries       AuditLog[]            @relation("AuditActor")
-  methodologyVersions   MethodologyVersion[]  @relation("MethodologyAuthor")
-  createdEntityLinks    EntityLink[]          @relation("EntityLinkCreator")
-  refreshTokens         RefreshToken[]
+  orgUnits               UserOrgUnit[]
+  ownedRisks             Risk[]               @relation("RiskOwner")
+  ledAssessments         RiskAssessment[]     @relation("AssessmentLead")
+  ownedTreatmentActions  TreatmentAction[]    @relation("TreatmentActionOwner")
+  testedControlTests     ControlTest[]        @relation("ControlTester")
+  ownedFrameworks        Framework[]          @relation("FrameworkOwner")
+  uploadedEvidence       Evidence[]           @relation("EvidenceUploader")
+  auditLogEntries        AuditLog[]           @relation("AuditActor")
+  methodologyVersions    MethodologyVersion[] @relation("MethodologyAuthor")
+  createdEntityLinks     EntityLink[]         @relation("EntityLinkCreator")
+  ownedBusinessProcesses BusinessProcess[]    @relation("BusinessProcessOwner")
+  refreshTokens          RefreshToken[]
 
   @@map("users")
 }
@@ -207,12 +224,12 @@ model UserOrgUnit {
 
 // Opaque, hashed refresh tokens for session rotation (see auth module).
 model RefreshToken {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   userId    String
-  tokenHash String   @unique
+  tokenHash String    @unique
   expiresAt DateTime
   revokedAt DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -244,7 +261,7 @@ model Category {
 // ---------------------------------------------------------------------------
 
 model Risk {
-  id String @id @default(uuid())
+  id             String @id @default(uuid())
   // Backs the human-readable "R-001" display code shown throughout the UI
   // (tables, badges, breadcrumbs, matrix chips) - never used for lookups.
   sequenceNumber Int    @unique @default(autoincrement())
@@ -262,21 +279,27 @@ model Risk {
 
   status RiskStatus @default(IDENTIFIED)
 
-  likelihood     Int // 1-5
-  impact         Int // 1-5
-  inherentScore  Int // likelihood * impact, 1-25 - denormalized for fast filtering/sorting
-  inherentBand   ScoreBand
+  likelihood    Int // 1-5
+  impact        Int // 1-5
+  inherentScore Int // likelihood * impact, 1-25 - denormalized for fast filtering/sorting
+  inherentBand  ScoreBand
 
   treatmentStrategy TreatmentStrategy?
   treatmentNote     String?
 
-  // Manually entered by the risk owner (1-25) - intentionally NOT derived
-  // from a residual likelihood/impact pair. Placeholder until a future
-  // Control Library + Business Impact Analysis make this a computed value;
-  // residualBand is derived live from residualScore via the same
-  // Low/Medium/High/Critical thresholds as inherentBand (see scoring.util.ts).
-  residualScore Int?
-  residualBand  ScoreBand?
+  // The effective residual score shown throughout the UI (1-25): either the
+  // live output of the ResidualScoringStrategy across linked Controls, or
+  // residualScoreOverride when the risk owner has set one. residualBand is
+  // derived live from residualScore via the same Low/Medium/High/Critical
+  // thresholds as inherentBand (see scoring.util.ts).
+  residualScore         Int?
+  residualBand          ScoreBand?
+  residualSource        ResidualScoreSource?
+  // Explicit manual value entered by the risk owner. Sticks until they clear
+  // it or until the set of linked Controls (or a linked Control's test
+  // result) changes, at which point it is cleared and residualScore reverts
+  // to the computed value (see RiskControlsService propagation).
+  residualScoreOverride Int?
 
   notes          String?
   nextReviewDate DateTime?
@@ -284,9 +307,11 @@ model Risk {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  assessmentLinks  AssessmentRisk[]
-  treatmentActions TreatmentAction[]
-  entityLinks      EntityLink[]
+  assessmentLinks      AssessmentRisk[]
+  treatmentActions     TreatmentAction[]
+  entityLinks          EntityLink[]
+  controlLinks         RiskControl[]
+  businessProcessLinks BusinessProcessRisk[]
 
   @@index([orgUnitId])
   @@index([categoryId])
@@ -302,7 +327,7 @@ model Risk {
 // ---------------------------------------------------------------------------
 
 model RiskAssessment {
-  id String @id @default(uuid())
+  id             String @id @default(uuid())
   // Backs the human-readable "ASS-<year>-001" display code shown throughout
   // the UI - never used for lookups.
   sequenceNumber Int    @unique @default(autoincrement())
@@ -321,9 +346,9 @@ model RiskAssessment {
 
   // Auto-computed from the share of linked Treatment Actions marked COMPLETED,
   // unless progressOverride is set, in which case progressManualValue wins.
-  progressPercent      Int     @default(0)
-  progressOverride     Boolean @default(false)
-  progressManualValue  Int?
+  progressPercent     Int     @default(0)
+  progressOverride    Boolean @default(false)
+  progressManualValue Int?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -377,8 +402,8 @@ model TreatmentAction {
 // Versioned rich-text reference page. Admins create new versions; everyone
 // reads the current one. Not modeled as structured/transactional data.
 model MethodologyVersion {
-  id      String @id @default(uuid())
-  version Int
+  id                 String   @id @default(uuid())
+  version            Int
   // Named framework/standard this version is aligned to, e.g. "NIST SP 800-30
   // Rev. 1" - editable per version, never hardcoded in the UI.
   frameworkReference String
@@ -420,9 +445,10 @@ model Control {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  frameworkLinks ControlFramework[]
-  tests          ControlTest[]
-  entityLinks    EntityLink[]
+  frameworkControlLinks ControlFrameworkControl[]
+  tests                 ControlTest[]
+  entityLinks           EntityLink[]
+  riskLinks             RiskControl[]
 
   @@index([orgUnitId])
   @@index([domainCategoryId])
@@ -431,13 +457,107 @@ model Control {
   @@map("controls")
 }
 
+// Links a Control to the Risk(s) it mitigates. Both sides already exist as
+// first-class tables, so this is a plain typed join table (like
+// AssessmentRisk/ControlFramework) rather than the generic EntityLink seam,
+// which is reserved for entities that don't exist yet. Every link
+// contributes equally to ResidualScoringStrategy - no per-link weight.
+model RiskControl {
+  riskId    String
+  controlId String
+  createdAt DateTime @default(now())
+
+  risk    Risk    @relation(fields: [riskId], references: [id], onDelete: Cascade)
+  control Control @relation(fields: [controlId], references: [id], onDelete: Cascade)
+
+  @@id([riskId, controlId])
+  @@index([controlId])
+  @@map("risk_controls")
+}
+
+// ---------------------------------------------------------------------------
+// Business Impact Analysis (BIA) Register
+// ---------------------------------------------------------------------------
+
+model BusinessProcess {
+  id             String  @id @default(uuid())
+  // Backs the human-readable "BP-001" display code shown throughout the UI -
+  // never used for lookups.
+  sequenceNumber Int     @unique @default(autoincrement())
+  name           String
+  description    String?
+
+  orgUnitId String
+  orgUnit   OrgUnit @relation(fields: [orgUnitId], references: [id], onDelete: Restrict)
+
+  ownerId String
+  owner   User   @relation("BusinessProcessOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+
+  criticalityTier BusinessProcessCriticalityTier
+  // Recovery Time Objective / Recovery Point Objective, in minutes.
+  rtoMinutes      Int?
+  rpoMinutes      Int?
+
+  // CIA triad rating (1-3: Low/Medium/High) - independent of criticalityTier,
+  // which stays a separate, manually-set overall tier.
+  confidentialityScore Int?
+  integrityScore       Int?
+  availabilityScore    Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  riskLinks      BusinessProcessRisk[]
+  // Other Business Processes this one depends on ("A needs B to run").
+  dependsOnLinks BusinessProcessDependency[] @relation("BusinessProcessDependent")
+  // Business Processes that depend on this one (the reverse direction).
+  dependentLinks BusinessProcessDependency[] @relation("BusinessProcessDependsOn")
+
+  @@index([orgUnitId])
+  @@index([ownerId])
+  @@index([criticalityTier])
+  @@map("business_processes")
+}
+
+// Self-referential dependency edge: businessProcessId depends on dependsOnId
+// (e.g. "Cold transport" depends on "Warehousing & picking"). Plain typed
+// join table, same pattern as BusinessProcessRisk - no cycle detection, this
+// is a reference graph, not something scored or evaluated recursively.
+model BusinessProcessDependency {
+  businessProcessId String
+  dependsOnId       String
+  createdAt         DateTime @default(now())
+
+  businessProcess BusinessProcess @relation("BusinessProcessDependent", fields: [businessProcessId], references: [id], onDelete: Cascade)
+  dependsOn       BusinessProcess @relation("BusinessProcessDependsOn", fields: [dependsOnId], references: [id], onDelete: Cascade)
+
+  @@id([businessProcessId, dependsOnId])
+  @@index([dependsOnId])
+  @@map("business_process_dependencies")
+}
+
+// Links a Business Process to the Risk(s) that threaten it. Plain typed join
+// table, same pattern as AssessmentRisk/RiskControl.
+model BusinessProcessRisk {
+  businessProcessId String
+  riskId            String
+  createdAt         DateTime @default(now())
+
+  businessProcess BusinessProcess @relation(fields: [businessProcessId], references: [id], onDelete: Cascade)
+  risk            Risk            @relation(fields: [riskId], references: [id], onDelete: Cascade)
+
+  @@id([businessProcessId, riskId])
+  @@index([riskId])
+  @@map("business_process_risks")
+}
+
 // ---------------------------------------------------------------------------
 // Compliance Frameworks
 // ---------------------------------------------------------------------------
 
 model Framework {
-  id          String  @id @default(uuid())
-  name        String  @unique
+  id          String @id @default(uuid())
+  name        String @unique
   description String
 
   orgUnitId String
@@ -449,21 +569,48 @@ model Framework {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  controlLinks ControlFramework[]
+  controls FrameworkControl[]
 
   @@map("frameworks")
 }
 
-model ControlFramework {
-  controlId   String
+// A single clause/control within a Framework (e.g. ISO 27001:2022 "A.5.1 -
+// Policies for information security"). Controls in the Control Library map
+// to these, not to the Framework as a whole - see ControlFrameworkControl.
+model FrameworkControl {
+  id          String  @id @default(uuid())
+  // e.g. "A.5.1" (ISO 27001 Annex A), "Art. 32" (GDPR) - unique within its
+  // Framework, never used alone for lookups.
+  code        String
+  title       String
+  description String?
+
   frameworkId String
-  createdAt   DateTime @default(now())
+  framework   Framework @relation(fields: [frameworkId], references: [id], onDelete: Cascade)
 
-  control   Control   @relation(fields: [controlId], references: [id], onDelete: Cascade)
-  framework Framework @relation(fields: [frameworkId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  @@id([controlId, frameworkId])
-  @@map("control_frameworks")
+  controlLinks ControlFrameworkControl[]
+
+  @@unique([frameworkId, code])
+  @@map("framework_controls")
+}
+
+// Links a Control Library Control to the specific Framework clause(s) it
+// satisfies. Plain typed join table, same pattern as ControlFramework used
+// to be for the whole Framework.
+model ControlFrameworkControl {
+  controlId          String
+  frameworkControlId String
+  createdAt          DateTime @default(now())
+
+  control          Control          @relation(fields: [controlId], references: [id], onDelete: Cascade)
+  frameworkControl FrameworkControl @relation(fields: [frameworkControlId], references: [id], onDelete: Cascade)
+
+  @@id([controlId, frameworkControlId])
+  @@index([frameworkControlId])
+  @@map("control_framework_controls")
 }
 
 // ---------------------------------------------------------------------------
@@ -500,7 +647,7 @@ model ControlTest {
 // Evidence files are append-only per ControlTest: editing a test never
 // deletes previously uploaded evidence, it only adds new rows.
 model Evidence {
-  id            String   @id @default(uuid())
+  id            String      @id @default(uuid())
   controlTestId String
   controlTest   ControlTest @relation(fields: [controlTestId], references: [id], onDelete: Cascade)
 
@@ -510,7 +657,7 @@ model Evidence {
   sizeBytes   Int
 
   uploadedById String
-  uploadedBy   User   @relation("EvidenceUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+  uploadedBy   User     @relation("EvidenceUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
   uploadedAt   DateTime @default(now())
 
   @@index([controlTestId])

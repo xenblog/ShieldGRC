@@ -3,13 +3,15 @@ import { AuditAction, Prisma, RiskStatus, ScoreBand } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { OrgUnitScopeService } from '../../common/org-unit-scope/org-unit-scope.service';
 import { AuditService } from '../../common/audit/audit.service';
+import { ResidualScoringService } from '../../common/scoring/residual-scoring.service';
 import { AuthenticatedUser } from '../../common/types/authenticated-user';
 import { OPEN_RISK_STATUSES } from '../../common/risk-status/open-risk-statuses';
-import { recalculateRiskScores, scoreToBand } from '../../common/scoring/scoring.util';
+import { computeScore, scoreToBand } from '../../common/scoring/scoring.util';
 import { riskDisplayCode } from '../../common/display-code/display-code.util';
 import { CreateRiskDto } from './dto/create-risk.dto';
 import { UpdateRiskDto } from './dto/update-risk.dto';
 import { QueryRisksDto, RiskSortField } from './dto/query-risks.dto';
+import { LinkControlsDto } from './dto/link-controls.dto';
 
 /** A risk whose next review date has passed - CLOSED risks are never flagged, they don't need re-review. */
 function computeIsOverdue(risk: { status: RiskStatus; nextReviewDate: Date | null }): boolean {
@@ -22,6 +24,7 @@ export class RisksService {
     private readonly prisma: PrismaService,
     private readonly scope: OrgUnitScopeService,
     private readonly audit: AuditService,
+    private readonly residualScoring: ResidualScoringService,
   ) {}
 
   private commonInclude() {
@@ -29,11 +32,25 @@ export class RisksService {
       category: true,
       orgUnit: true,
       owner: { select: { id: true, name: true, email: true } },
+      controlLinks: { include: { control: { select: { id: true, code: true, name: true, type: true, effectiveness: true } } } },
     } satisfies Prisma.RiskInclude;
   }
 
-  private withComputed<T extends { status: RiskStatus; nextReviewDate: Date | null; sequenceNumber: number }>(risk: T) {
-    return { ...risk, isOverdue: computeIsOverdue(risk), code: riskDisplayCode(risk.sequenceNumber) };
+  private withComputed<
+    T extends {
+      status: RiskStatus;
+      nextReviewDate: Date | null;
+      sequenceNumber: number;
+      controlLinks?: { control: { id: string; code: string; name: string; type: string; effectiveness: string } }[];
+    },
+  >(risk: T) {
+    const { controlLinks, ...rest } = risk;
+    return {
+      ...rest,
+      isOverdue: computeIsOverdue(risk),
+      code: riskDisplayCode(risk.sequenceNumber),
+      ...(controlLinks ? { linkedControls: controlLinks.map((l) => l.control) } : {}),
+    };
   }
 
   private buildWhere(user: AuthenticatedUser, query: QueryRisksDto): Prisma.RiskWhereInput {
@@ -136,7 +153,7 @@ export class RisksService {
 
   async create(dto: CreateRiskDto, user: AuthenticatedUser) {
     this.scope.assertCanWriteOrgUnit(user, dto.orgUnitId);
-    const scores = recalculateRiskScores(dto);
+    const inherent = computeScore(dto.likelihood, dto.impact);
 
     const risk = await this.prisma.$transaction(async (tx) => {
       const created = await tx.risk.create({
@@ -149,16 +166,18 @@ export class RisksService {
           status: dto.status,
           likelihood: dto.likelihood,
           impact: dto.impact,
-          inherentScore: scores.inherentScore,
-          inherentBand: scores.inherentBand,
+          inherentScore: inherent.score,
+          inherentBand: inherent.band,
           treatmentStrategy: dto.treatmentStrategy,
           treatmentNote: dto.treatmentNote,
-          residualScore: scores.residualScore,
-          residualBand: scores.residualBand,
+          residualScoreOverride: dto.residualScoreOverride ?? null,
           notes: dto.notes,
           nextReviewDate: dto.nextReviewDate,
         },
       });
+      // No Controls can be linked yet at creation time, so this simply
+      // resolves the override (or leaves the risk with no residual value).
+      await this.residualScoring.recalculateForRisk(created.id, tx);
       await this.audit.record(tx, {
         entityType: 'Risk',
         entityId: created.id,
@@ -180,13 +199,12 @@ export class RisksService {
       this.scope.assertCanWriteOrgUnit(user, dto.orgUnitId);
     }
 
-    // Live scoring: recompute from whichever likelihood/impact/residual values
-    // are in effect after this update, not just the ones the caller sent.
-    const scores = recalculateRiskScores({
-      likelihood: dto.likelihood ?? existing.likelihood,
-      impact: dto.impact ?? existing.impact,
-      residualScore: dto.residualScore ?? existing.residualScore,
-    });
+    // Live scoring: recompute inherent from whichever likelihood/impact are
+    // in effect after this update. residualScoreOverride is resolved below,
+    // then ResidualScoringService derives the effective residual score/band
+    // from it (or from currently linked Controls) after the write commits.
+    const inherent = computeScore(dto.likelihood ?? existing.likelihood, dto.impact ?? existing.impact);
+    const nextOverride = dto.clearResidualOverride ? null : dto.residualScoreOverride ?? existing.residualScoreOverride;
 
     await this.prisma.$transaction(async (tx) => {
       const updated = await tx.risk.update({
@@ -200,16 +218,16 @@ export class RisksService {
           status: dto.status,
           likelihood: dto.likelihood,
           impact: dto.impact,
-          inherentScore: scores.inherentScore,
-          inherentBand: scores.inherentBand,
+          inherentScore: inherent.score,
+          inherentBand: inherent.band,
           treatmentStrategy: dto.treatmentStrategy,
           treatmentNote: dto.treatmentNote,
-          residualScore: scores.residualScore,
-          residualBand: scores.residualBand,
+          residualScoreOverride: nextOverride,
           notes: dto.notes,
           nextReviewDate: dto.nextReviewDate,
         },
       });
+      await this.residualScoring.recalculateForRisk(id, tx);
       await this.audit.record(tx, {
         entityType: 'Risk',
         entityId: id,
@@ -217,6 +235,38 @@ export class RisksService {
         actorId: user.id,
         before: existing,
         after: updated,
+      });
+    });
+
+    return this.findOne(id, user);
+  }
+
+  /**
+   * Replaces the full set of Controls linked to this Risk (same
+   * replace-all-links semantics as RiskAssessmentsService.updateLinkedRisks)
+   * and immediately recomputes the residual score from the new set.
+   */
+  async updateLinkedControls(id: string, dto: LinkControlsDto, user: AuthenticatedUser) {
+    const existing = await this.prisma.risk.findUnique({
+      where: { id },
+      include: { controlLinks: true },
+    });
+    if (!existing) throw new NotFoundException('Risk not found');
+    this.scope.assertCanWriteOrgUnit(user, existing.orgUnitId);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.riskControl.deleteMany({ where: { riskId: id } });
+      await tx.riskControl.createMany({
+        data: dto.controlIds.map((controlId) => ({ riskId: id, controlId })),
+      });
+      await this.residualScoring.recalculateForRisk(id, tx);
+      await this.audit.record(tx, {
+        entityType: 'Risk',
+        entityId: id,
+        action: AuditAction.UPDATE,
+        actorId: user.id,
+        before: { linkedControlIds: existing.controlLinks.map((l) => l.controlId) },
+        after: { linkedControlIds: dto.controlIds },
       });
     });
 

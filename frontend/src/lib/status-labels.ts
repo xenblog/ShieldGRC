@@ -1,4 +1,17 @@
-import { AssessmentStatus, RiskStatus, TreatmentActionStatus, UserAccountStatus, UserRole, UserSource } from './types';
+import {
+  AssessmentStatus,
+  BusinessProcessCriticalityTier,
+  ControlEffectiveness,
+  ControlFrequency,
+  ControlType,
+  RiskStatus,
+  TestMethod,
+  TestResult,
+  TreatmentActionStatus,
+  UserAccountStatus,
+  UserRole,
+  UserSource,
+} from './types';
 
 /** Humanized label + `.status-*` CSS class suffix for every status enum used in the UI. */
 
@@ -87,4 +100,66 @@ export const USER_ACCOUNT_STATUS_CLASS: Record<UserAccountStatus, string> = {
   ACTIVE: 'status-active',
   INVITED: 'status-invited',
   DEACTIVATED: 'status-deactivated',
+};
+
+export const CONTROL_TYPE_LABEL: Record<ControlType, string> = {
+  PREVENTIVE: 'Preventive',
+  DETECTIVE: 'Detective',
+  CORRECTIVE: 'Corrective',
+  COMPENSATING: 'Compensating',
+};
+
+export const CONTROL_FREQUENCY_LABEL: Record<ControlFrequency, string> = {
+  CONTINUOUS: 'Continuous',
+  DAILY: 'Daily',
+  WEEKLY: 'Weekly',
+  MONTHLY: 'Monthly',
+  QUARTERLY: 'Quarterly',
+  ANNUAL: 'Annual',
+};
+
+export const CONTROL_EFFECTIVENESS_LABEL: Record<ControlEffectiveness, string> = {
+  EFFECTIVE: 'Effective',
+  PARTIALLY_EFFECTIVE: 'Partially Effective',
+  INEFFECTIVE: 'Ineffective',
+  NOT_YET_TESTED: 'Not Yet Tested',
+};
+export const CONTROL_EFFECTIVENESS_CLASS: Record<ControlEffectiveness, string> = {
+  EFFECTIVE: 'status-effective',
+  PARTIALLY_EFFECTIVE: 'status-partially-effective',
+  INEFFECTIVE: 'status-ineffective',
+  NOT_YET_TESTED: 'status-not-yet-tested',
+};
+
+export const TEST_RESULT_LABEL: Record<TestResult, string> = {
+  PASS: 'Pass',
+  FAIL: 'Fail',
+  PARTIAL: 'Partial',
+};
+export const TEST_RESULT_CLASS: Record<TestResult, string> = {
+  PASS: 'status-effective',
+  FAIL: 'status-ineffective',
+  PARTIAL: 'status-partially-effective',
+};
+
+export const TEST_METHOD_LABEL: Record<TestMethod, string> = {
+  INSPECTION: 'Inspection',
+  WALKTHROUGH: 'Walkthrough',
+  REPERFORMANCE: 'Reperformance',
+  AUTOMATED: 'Automated',
+};
+
+export const CRITICALITY_TIER_LABEL: Record<BusinessProcessCriticalityTier, string> = {
+  CRITICAL: 'Critical',
+  HIGH: 'High',
+  MEDIUM: 'Medium',
+  LOW: 'Low',
+};
+// BusinessProcessCriticalityTier shares its exact values with ScoreBand, so
+// the same badge-* classes (globals.css) apply without new CSS.
+export const CRITICALITY_TIER_BADGE_CLASS: Record<BusinessProcessCriticalityTier, string> = {
+  CRITICAL: 'badge-critical',
+  HIGH: 'badge-high',
+  MEDIUM: 'badge-medium',
+  LOW: 'badge-low',
 };
