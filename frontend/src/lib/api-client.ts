@@ -77,10 +77,68 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return (text ? JSON.parse(text) : undefined) as T;
 }
 
+async function doFetchForm(method: string, path: string, form: FormData, token: string | null): Promise<Response> {
+  return fetch(`/api${path}`, {
+    method,
+    credentials: 'include',
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: form,
+  });
+}
+
+/** POST/PATCH with a multipart body (file uploads) - see ControlTest create/update, which take `evidence` files alongside plain fields. */
+async function requestForm<T>(method: string, path: string, form: FormData): Promise<T> {
+  let res = await doFetchForm(method, path, form, accessToken);
+  if (res.status === 401 && accessToken !== null) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      res = await doFetchForm(method, path, form, accessToken);
+    }
+  }
+  if (!res.ok) {
+    throw new ApiError(await extractErrorMessage(res), res.status);
+  }
+  const text = await res.text();
+  return (text ? JSON.parse(text) : undefined) as T;
+}
+
+/** Fetches a binary file (e.g. evidence download) with the same auth handling as `request`, for triggering a client-side save. */
+async function requestBlob(path: string): Promise<Blob> {
+  let res = await fetch(`/api${path}`, {
+    credentials: 'include',
+    headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+  });
+  if (res.status === 401 && accessToken !== null) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      res = await fetch(`/api${path}`, { credentials: 'include', headers: { Authorization: `Bearer ${accessToken}` } });
+    }
+  }
+  if (!res.ok) {
+    throw new ApiError(await extractErrorMessage(res), res.status);
+  }
+  return res.blob();
+}
+
 export const api = {
   get: <T>(path: string) => request<T>('GET', path),
   post: <T>(path: string, body?: unknown) => request<T>('POST', path, body),
   patch: <T>(path: string, body?: unknown) => request<T>('PATCH', path, body),
   put: <T>(path: string, body?: unknown) => request<T>('PUT', path, body),
   delete: <T>(path: string) => request<T>('DELETE', path),
+  postForm: <T>(path: string, form: FormData) => requestForm<T>('POST', path, form),
+  patchForm: <T>(path: string, form: FormData) => requestForm<T>('PATCH', path, form),
+  getBlob: (path: string) => requestBlob(path),
 };
+
+/** Triggers a browser save-as for a Blob already fetched with an auth header (a plain `<a href>` can't carry the in-memory access token). */
+export function saveBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}

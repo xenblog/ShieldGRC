@@ -75,7 +75,7 @@ describe('Risk Register (e2e)', () => {
     const updated = await request(app.getHttpServer())
       .patch(`/api/risks/${created.body.id}`)
       .set(...authHeader(token))
-      .send({ residualScore: 9, treatmentStrategy: 'REDUCE' })
+      .send({ residualScoreOverride: 9, treatmentStrategy: 'REDUCE' })
       .expect(200);
     expect(updated.body.residualScore).toBe(9);
     expect(updated.body.residualBand).toBe('HIGH');
@@ -97,7 +97,7 @@ describe('Risk Register (e2e)', () => {
     const updated3 = await request(app.getHttpServer())
       .patch(`/api/risks/${created.body.id}`)
       .set(...authHeader(token))
-      .send({ residualScore: 3 })
+      .send({ residualScoreOverride: 3 })
       .expect(200);
     expect(updated3.body.residualScore).toBe(3);
     expect(updated3.body.residualBand).toBe('LOW');

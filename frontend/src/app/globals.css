@@ -663,6 +663,24 @@ a:hover {
   background: var(--dgs-bitter-tint);
   color: var(--dgs-umami);
 }
+/* Control effectiveness / Control Test result */
+.status-effective {
+  background: var(--dgs-groent-tint);
+  color: #1f2a1c;
+}
+.status-partially-effective {
+  background: var(--dgs-surt-tint);
+  color: #6b5100;
+}
+.status-ineffective {
+  background: var(--dgs-red);
+  color: var(--dgs-white);
+}
+.status-not-yet-tested {
+  background: var(--dgs-salt-tint);
+  color: var(--dgs-black);
+  border-color: var(--dgs-salt);
+}
 
 .tag {
   display: inline-block;

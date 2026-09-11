@@ -92,7 +92,6 @@ export default function AssessmentDetailPage() {
       const risk = await api.post<Risk>('/risks', {
         ...newRiskValues,
         treatmentStrategy: newRiskValues.treatmentStrategy || undefined,
-        residualScore: newRiskValues.residualScore === '' ? undefined : newRiskValues.residualScore,
         nextReviewDate: newRiskValues.nextReviewDate || undefined,
       });
       const updated = await api.put<RiskAssessmentDetail>(`/risk-assessments/${params.id}/risks`, {

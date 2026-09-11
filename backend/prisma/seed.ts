@@ -1,9 +1,10 @@
 /* eslint-disable no-console */
-import { PrismaClient, UserRole, RiskStatus, TreatmentStrategy, NistCsfFunction, AssessmentStatus, TreatmentActionStatus, ControlType, ControlFrequency, ControlEffectiveness, TestResult, TestMethod } from '@prisma/client';
+import { PrismaClient, UserRole, RiskStatus, TreatmentStrategy, NistCsfFunction, AssessmentStatus, TreatmentActionStatus, ControlType, ControlFrequency, ControlEffectiveness, TestResult, TestMethod, BusinessProcessCriticalityTier } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import * as fs from 'fs';
 import * as path from 'path';
-import { recalculateRiskScores } from '../src/common/scoring/scoring.util';
+import { computeScore, scoreToBand } from '../src/common/scoring/scoring.util';
+import { ControlBasedResidualScoringStrategy } from '../src/common/scoring/residual-scoring.strategy';
 
 const prisma = new PrismaClient();
 
@@ -188,9 +189,10 @@ async function main() {
     impact: number;
     treatmentStrategy?: TreatmentStrategy;
     treatmentNote?: string;
-    // Manually entered, not derived from a likelihood/impact pair - see
-    // scoring.util.ts.
-    residualScore?: number;
+    // Manual override for the live-computed residual score - see
+    // ResidualScoringService. Most seed risks leave this unset so the
+    // computed value (from any linked Controls added below) shows through.
+    residualScoreOverride?: number;
     notes?: string;
     nextReviewDate?: Date;
   }
@@ -209,7 +211,8 @@ async function main() {
       impact: 4,
       treatmentStrategy: TreatmentStrategy.REDUCE,
       treatmentNote: 'Udrulning af MFA til alle fjernadgangsløsninger i gang.',
-      residualScore: 6,
+      // No override - linked to CTL-001 below, so residualScore is the
+      // live-computed value.
       nextReviewDate: daysFromNow(60),
     },
     {
@@ -286,7 +289,8 @@ async function main() {
       impact: 5,
       treatmentStrategy: TreatmentStrategy.TRANSFER,
       treatmentNote: 'Kontraktkrav om beredskabsplan under forhandling.',
-      residualScore: 8,
+      // No override - linked to CTL-013 below (currently FAIL), so
+      // residualScore is the live-computed value.
       nextReviewDate: daysFromNow(60),
     },
     {
@@ -301,7 +305,7 @@ async function main() {
       impact: 4,
       treatmentStrategy: TreatmentStrategy.ACCEPT,
       treatmentNote: 'Ledelsen har accepteret risikoen givet manglende reelle alternativer på kort sigt.',
-      residualScore: 16,
+      residualScoreOverride: 16,
       nextReviewDate: daysFromNow(180),
     },
     {
@@ -342,7 +346,8 @@ async function main() {
       impact: 3,
       treatmentStrategy: TreatmentStrategy.REDUCE,
       treatmentNote: 'Skærpet awareness-træningsprogram igangsat.',
-      residualScore: 6,
+      // No override - linked to CTL-005 below, so residualScore is the
+      // live-computed value.
       nextReviewDate: daysFromNow(45),
     },
     {
@@ -369,7 +374,7 @@ async function main() {
       impact: 4,
       treatmentStrategy: TreatmentStrategy.REDUCE,
       treatmentNote: 'Databehandleraftaler er nu på plads med alle relevante leverandører.',
-      residualScore: 2,
+      residualScoreOverride: 2,
       nextReviewDate: daysFromNow(365),
     },
     {
@@ -408,11 +413,11 @@ async function main() {
       risks[seed.key] = existing;
       continue;
     }
-    const scores = recalculateRiskScores({
-      likelihood: seed.likelihood,
-      impact: seed.impact,
-      residualScore: seed.residualScore ?? null,
-    });
+    const inherent = computeScore(seed.likelihood, seed.impact);
+    // residualScore/residualBand/residualSource get their real value below,
+    // once Controls exist and can be linked - see "Recompute residual
+    // scores" further down (mirrors ResidualScoringService, which the seed
+    // script bypasses by writing directly via Prisma).
     risks[seed.key] = await prisma.risk.create({
       data: {
         title: seed.title,
@@ -423,12 +428,11 @@ async function main() {
         status: seed.status,
         likelihood: seed.likelihood,
         impact: seed.impact,
-        inherentScore: scores.inherentScore,
-        inherentBand: scores.inherentBand,
+        inherentScore: inherent.score,
+        inherentBand: inherent.band,
         treatmentStrategy: seed.treatmentStrategy,
         treatmentNote: seed.treatmentNote,
-        residualScore: scores.residualScore,
-        residualBand: scores.residualBand,
+        residualScoreOverride: seed.residualScoreOverride ?? null,
         notes: seed.notes,
         nextReviewDate: seed.nextReviewDate,
       },
@@ -798,6 +802,131 @@ async function main() {
       where: { id: control.id },
       data: { effectiveness, lastTestedAt: latest?.testedDate ?? null },
     });
+  }
+
+  // ---------------------------------------------------------------------
+  // Risk <-> Control links (RiskControl) - demonstrates the propagation
+  // engine: each linked Control's current effectiveness feeds the linked
+  // Risk's computed residual score below.
+  // ---------------------------------------------------------------------
+  const riskControlLinkSeeds: { riskKey: string; controlCode: string }[] = [
+    { riskKey: 'mfa', controlCode: 'CTL-001' },
+    { riskKey: 'firmware', controlCode: 'CTL-003' },
+    { riskKey: 'kryptering', controlCode: 'CTL-006' },
+    { riskKey: 'logging', controlCode: 'CTL-008' },
+    { riskKey: 'leverandoer-beredskab', controlCode: 'CTL-013' },
+    { riskKey: 'phishing', controlCode: 'CTL-005' },
+  ];
+  for (const link of riskControlLinkSeeds) {
+    await prisma.riskControl.upsert({
+      where: { riskId_controlId: { riskId: risks[link.riskKey].id, controlId: controls[link.controlCode].id } },
+      update: {},
+      create: { riskId: risks[link.riskKey].id, controlId: controls[link.controlCode].id },
+    });
+  }
+
+  // Recompute residualScore/residualBand/residualSource for every risk,
+  // mirroring ResidualScoringService (the seed script writes directly via
+  // Prisma, bypassing the service layer): a manual override wins, otherwise
+  // it's derived from currently linked Controls' effectiveness.
+  const residualStrategy = new ControlBasedResidualScoringStrategy();
+  for (const risk of Object.values(risks)) {
+    const links = await prisma.riskControl.findMany({
+      where: { riskId: risk.id },
+      include: { control: { select: { effectiveness: true } } },
+    });
+    const computed = residualStrategy.computeResidualScore(
+      risk.inherentScore,
+      links.map((l) => l.control.effectiveness),
+    );
+    const residualScore = risk.residualScoreOverride ?? computed;
+    await prisma.risk.update({
+      where: { id: risk.id },
+      data: {
+        residualScore,
+        residualBand: residualScore != null ? scoreToBand(residualScore) : null,
+        residualSource: risk.residualScoreOverride != null ? 'MANUAL' : computed != null ? 'COMPUTED' : null,
+      },
+    });
+  }
+
+  // ---------------------------------------------------------------------
+  // Business Impact Analysis (BIA) Register
+  // ---------------------------------------------------------------------
+  interface BusinessProcessSeed {
+    name: string;
+    description: string;
+    orgUnitId: string;
+    ownerId: string;
+    criticalityTier: BusinessProcessCriticalityTier;
+    rtoMinutes?: number;
+    rpoMinutes?: number;
+    riskKeys: string[];
+  }
+
+  const businessProcessSeeds: BusinessProcessSeed[] = [
+    {
+      name: 'Lagerstyring og pluk',
+      description: 'Modtagelse, lagerstyring og plukning af varer på de automatiserede lagre.',
+      orgUnitId: orgLogistik.id,
+      ownerId: riskOwnerLogistik.id,
+      criticalityTier: BusinessProcessCriticalityTier.CRITICAL,
+      rtoMinutes: 240,
+      rpoMinutes: 60,
+      riskKeys: ['firmware', 'ot-it-segmentering', 'adgangskontrol-lager'],
+    },
+    {
+      name: 'Kølet transport til Foodservice-kunder',
+      description: 'Distribution af kølede og frosne varer til Foodservice-kunder.',
+      orgUnitId: orgFoodservice.id,
+      ownerId: riskOwnerFoodservice.id,
+      criticalityTier: BusinessProcessCriticalityTier.CRITICAL,
+      rtoMinutes: 120,
+      rpoMinutes: 30,
+      riskKeys: ['koeletransport', 'leverandoer-beredskab'],
+    },
+    {
+      name: 'Kundedatabehandling',
+      description: 'Behandling og opbevaring af persondata om kunder på tværs af koncernens systemer.',
+      orgUnitId: orgAps.id,
+      ownerId: riskOwnerAps.id,
+      criticalityTier: BusinessProcessCriticalityTier.HIGH,
+      rtoMinutes: 480,
+      rpoMinutes: 240,
+      riskKeys: ['logging', 'gdpr-deling'],
+    },
+    {
+      name: 'Besøgshåndtering på hovedkontor',
+      description: 'Registrering og eskorte af eksterne besøgende på hovedkontoret.',
+      orgUnitId: orgAps.id,
+      ownerId: riskOwnerAps.id,
+      criticalityTier: BusinessProcessCriticalityTier.LOW,
+      riskKeys: ['besoegsregistrering'],
+    },
+  ];
+
+  for (const seed of businessProcessSeeds) {
+    const existing = await prisma.businessProcess.findFirst({ where: { name: seed.name } });
+    const process =
+      existing ??
+      (await prisma.businessProcess.create({
+        data: {
+          name: seed.name,
+          description: seed.description,
+          orgUnitId: seed.orgUnitId,
+          ownerId: seed.ownerId,
+          criticalityTier: seed.criticalityTier,
+          rtoMinutes: seed.rtoMinutes,
+          rpoMinutes: seed.rpoMinutes,
+        },
+      }));
+    for (const riskKey of seed.riskKeys) {
+      await prisma.businessProcessRisk.upsert({
+        where: { businessProcessId_riskId: { businessProcessId: process.id, riskId: risks[riskKey].id } },
+        update: {},
+        create: { businessProcessId: process.id, riskId: risks[riskKey].id },
+      });
+    }
   }
 
   console.log('Seed complete.');

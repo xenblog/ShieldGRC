@@ -40,14 +40,14 @@ export class CreateRiskDto {
   @IsString()
   treatmentNote?: string;
 
-  // Manually entered by the risk owner (1-25), not derived from a
-  // likelihood/impact pair - see scoring.util.ts for why. Only the band is
-  // computed, live, from this value.
+  // Explicit manual override (1-25) for the live-computed residual score -
+  // see ResidualScoringService. Omit to let the score be derived from
+  // linked Controls (or stay null when there are none yet).
   @IsOptional()
   @IsInt()
   @Min(1)
   @Max(25)
-  residualScore?: number;
+  residualScoreOverride?: number;
 
   @IsOptional()
   @IsString()

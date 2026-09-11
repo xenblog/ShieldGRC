@@ -15,7 +15,6 @@ export interface RiskFieldValues {
   likelihood: number;
   impact: number;
   treatmentStrategy: TreatmentStrategy | '';
-  residualScore: number | '';
   notes: string;
   nextReviewDate: string;
 }
@@ -31,7 +30,6 @@ export function emptyRiskFieldValues(): RiskFieldValues {
     likelihood: 3,
     impact: 3,
     treatmentStrategy: '',
-    residualScore: '',
     notes: '',
     nextReviewDate: '',
   };
@@ -153,40 +151,21 @@ export function RiskFields({
         </div>
       </div>
 
-      <div className="field-row">
-        <div className="field">
-          <label className="field-label">Treatment</label>
-          <select
-            className="select-input"
-            value={values.treatmentStrategy}
-            onChange={(e) => onChange('treatmentStrategy', e.target.value as TreatmentStrategy | '')}
-            disabled={disabled}
-          >
-            <option value="">None yet…</option>
-            {TREATMENT_STRATEGIES.map((s) => (
-              <option key={s} value={s}>
-                {s[0] + s.slice(1).toLowerCase()}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="field">
-          <label className="field-label">Residual Score (after treatment)</label>
-          <input
-            className="input"
-            style={{ fontFamily: 'var(--font-chrome)', fontWeight: 'bold' }}
-            type="number"
-            min={1}
-            max={25}
-            value={values.residualScore}
-            onChange={(e) => onChange('residualScore', e.target.value === '' ? '' : Number(e.target.value))}
-            disabled={disabled}
-          />
-          <div className="helper-note">
-            Entered manually by the risk owner — the band color updates automatically. Will become a computed value once the
-            Control Library and BIA are in place.
-          </div>
-        </div>
+      <div className="field">
+        <label className="field-label">Treatment</label>
+        <select
+          className="select-input"
+          value={values.treatmentStrategy}
+          onChange={(e) => onChange('treatmentStrategy', e.target.value as TreatmentStrategy | '')}
+          disabled={disabled}
+        >
+          <option value="">None yet…</option>
+          {TREATMENT_STRATEGIES.map((s) => (
+            <option key={s} value={s}>
+              {s[0] + s.slice(1).toLowerCase()}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div className="field">

@@ -7,9 +7,12 @@ import { useApiGet } from '@/lib/hooks';
 import { api } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
 import { BandBadge } from '@/components/BandBadge';
+import { Modal } from '@/components/Modal';
 import { RiskFields, RiskFieldValues, SCALE_LABELS } from '@/components/risks/RiskFields';
-import { Category, OrgUnit, RiskDetail, TreatmentActionStatus, UserSummary } from '@/lib/types';
+import { Category, Control, OrgUnit, RiskDetail, TreatmentActionStatus, UserSummary } from '@/lib/types';
 import {
+  CONTROL_EFFECTIVENESS_CLASS,
+  CONTROL_EFFECTIVENESS_LABEL,
   RISK_STATUS_CLASS,
   RISK_STATUS_LABEL,
   TREATMENT_STATUS_CLASS,
@@ -28,7 +31,6 @@ function toFieldValues(risk: RiskDetail): RiskFieldValues {
     likelihood: risk.likelihood,
     impact: risk.impact,
     treatmentStrategy: risk.treatmentStrategy ?? '',
-    residualScore: risk.residualScore ?? '',
     notes: risk.notes ?? '',
     nextReviewDate: risk.nextReviewDate ? risk.nextReviewDate.slice(0, 10) : '',
   };
@@ -38,7 +40,6 @@ function toPayload(values: RiskFieldValues) {
   return {
     ...values,
     treatmentStrategy: values.treatmentStrategy || undefined,
-    residualScore: values.residualScore === '' ? undefined : values.residualScore,
     nextReviewDate: values.nextReviewDate || undefined,
   };
 }
@@ -53,6 +54,7 @@ export default function RiskDetailPage() {
   const { data: categories } = useApiGet<Category[]>('/categories');
   const { data: orgUnits } = useApiGet<OrgUnit[]>('/org-units');
   const { data: users } = useApiGet<UserSummary[]>('/users/assignable');
+  const { data: allControls } = useApiGet<Control[]>('/controls');
 
   const [values, setValues] = useState<RiskFieldValues | null>(null);
   const [saving, setSaving] = useState(false);
@@ -63,10 +65,62 @@ export default function RiskDetailPage() {
   const [actionOwnerId, setActionOwnerId] = useState('');
   const [actionDueDate, setActionDueDate] = useState('');
 
+  const [overrideDraft, setOverrideDraft] = useState<string | null>(null);
+  const [overrideSaving, setOverrideSaving] = useState(false);
+
+  const [linkingControlsOpen, setLinkingControlsOpen] = useState(false);
+  const [controlSearch, setControlSearch] = useState('');
+  const [selectedControlIds, setSelectedControlIds] = useState<string[]>([]);
+
   const current = values ?? (risk ? toFieldValues(risk) : null);
 
   if (loading) return <p className="helper-note">Loading…</p>;
   if (!risk || !current) return null;
+
+  const overrideValue = overrideDraft ?? String(risk.residualScoreOverride ?? '');
+
+  function openLinkControlsModal() {
+    setSelectedControlIds(risk!.linkedControls.map((c) => c.id));
+    setControlSearch('');
+    setLinkingControlsOpen(true);
+  }
+
+  async function saveControlLinks() {
+    const updated = await api.put<RiskDetail>(`/risks/${params.id}/controls`, { controlIds: selectedControlIds });
+    setData(updated);
+    setLinkingControlsOpen(false);
+  }
+
+  async function unlinkControl(controlId: string) {
+    const updated = await api.put<RiskDetail>(`/risks/${params.id}/controls`, {
+      controlIds: risk!.linkedControls.filter((c) => c.id !== controlId).map((c) => c.id),
+    });
+    setData(updated);
+  }
+
+  async function saveOverride() {
+    const parsed = Number(overrideValue);
+    if (!overrideValue || !Number.isInteger(parsed) || parsed < 1 || parsed > 25) return;
+    setOverrideSaving(true);
+    try {
+      const updated = await api.patch<RiskDetail>(`/risks/${params.id}`, { residualScoreOverride: parsed });
+      setData(updated);
+      setOverrideDraft(null);
+    } finally {
+      setOverrideSaving(false);
+    }
+  }
+
+  async function clearOverride() {
+    setOverrideSaving(true);
+    try {
+      const updated = await api.patch<RiskDetail>(`/risks/${params.id}`, { clearResidualOverride: true });
+      setData(updated);
+      setOverrideDraft(null);
+    } finally {
+      setOverrideSaving(false);
+    }
+  }
 
   function onChange<K extends keyof RiskFieldValues>(key: K, value: RiskFieldValues[K]) {
     setValues({ ...current!, [key]: value });
@@ -229,6 +283,59 @@ export default function RiskDetailPage() {
 
           <div className="card">
             <div className="card-header">
+              <div className="section-title">Linked Controls</div>
+              {canEdit && (
+                <button type="button" onClick={openLinkControlsModal} className="btn-secondary">
+                  + Link Controls
+                </button>
+              )}
+            </div>
+            {risk.linkedControls.length === 0 ? (
+              <p className="helper-note">No controls linked yet. Residual score has no computed value until at least one is.</p>
+            ) : (
+              <table className="grc-table">
+                <thead>
+                  <tr>
+                    <th style={{ width: 90 }}>Code</th>
+                    <th>Name</th>
+                    <th>Type</th>
+                    <th>Effectiveness</th>
+                    {canEdit && <th></th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {risk.linkedControls.map((c) => (
+                    <tr key={c.id}>
+                      <td style={{ fontFamily: 'var(--font-chrome)', color: 'var(--dgs-umami)' }}>
+                        <Link href={`/controls/${c.id}`} className="risk-title">
+                          {c.code}
+                        </Link>
+                      </td>
+                      <td>{c.name}</td>
+                      <td>
+                        <span className="tag">{c.type[0] + c.type.slice(1).toLowerCase()}</span>
+                      </td>
+                      <td>
+                        <span className={`status ${CONTROL_EFFECTIVENESS_CLASS[c.effectiveness]}`}>
+                          {CONTROL_EFFECTIVENESS_LABEL[c.effectiveness]}
+                        </span>
+                      </td>
+                      {canEdit && (
+                        <td>
+                          <button type="button" className="link-btn" onClick={() => unlinkControl(c.id)}>
+                            Unlink
+                          </button>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          <div className="card">
+            <div className="card-header">
               <div className="section-title">Audit History</div>
             </div>
             {risk.auditHistory.length === 0 ? (
@@ -281,6 +388,37 @@ export default function RiskDetailPage() {
                 </span>
               )}
             </div>
+            <div className="helper-note" style={{ marginTop: -6 }}>
+              {risk.residualSource === 'MANUAL'
+                ? 'Manual override'
+                : risk.residualSource === 'COMPUTED'
+                  ? `Computed from ${risk.linkedControls.length} linked control${risk.linkedControls.length === 1 ? '' : 's'}`
+                  : 'No linked controls and no override yet'}
+            </div>
+            {canEdit && (
+              <div className="field-row" style={{ marginTop: 10, marginBottom: 0, alignItems: 'end' }}>
+                <div className="field" style={{ marginBottom: 0 }}>
+                  <label className="field-label">Manual Override (1–25)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={25}
+                    className="input"
+                    style={{ fontFamily: 'var(--font-chrome)' }}
+                    value={overrideValue}
+                    onChange={(e) => setOverrideDraft(e.target.value)}
+                  />
+                </div>
+                <button type="button" className="btn-secondary" disabled={overrideSaving || !overrideValue} onClick={saveOverride}>
+                  Set
+                </button>
+                {risk.residualSource === 'MANUAL' && (
+                  <button type="button" className="btn-secondary" disabled={overrideSaving} onClick={clearOverride}>
+                    Use Computed
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="card">
@@ -314,6 +452,71 @@ export default function RiskDetailPage() {
           </div>
         </div>
       </div>
+
+      {linkingControlsOpen && (
+        <Modal
+          title="Link Controls"
+          subtitle="Choose one or more Controls from the Control Library to link to this risk. The residual score recomputes immediately from their current effectiveness."
+          onClose={() => setLinkingControlsOpen(false)}
+          footer={
+            <>
+              <button type="button" className="btn-secondary" onClick={() => setLinkingControlsOpen(false)}>
+                Cancel
+              </button>
+              <button type="button" className="btn-primary" onClick={saveControlLinks}>
+                Link Selected Controls ({selectedControlIds.length})
+              </button>
+            </>
+          }
+        >
+          <div className="modal-search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="10.5" cy="10.5" r="6.5" />
+              <line x1="19" y1="19" x2="15.3" y2="15.3" />
+            </svg>
+            <input
+              placeholder="Search by control code or name…"
+              value={controlSearch}
+              onChange={(e) => setControlSearch(e.target.value)}
+              autoFocus
+            />
+          </div>
+          <div className="modal-list">
+            {(allControls ?? [])
+              .filter((c) => {
+                const q = controlSearch.trim().toLowerCase();
+                if (!q) return true;
+                return c.code.toLowerCase().includes(q) || c.name.toLowerCase().includes(q);
+              })
+              .map((c) => {
+                const checked = selectedControlIds.includes(c.id);
+                return (
+                  <div
+                    key={c.id}
+                    className="modal-list-row"
+                    onClick={() =>
+                      setSelectedControlIds((prev) => (checked ? prev.filter((id) => id !== c.id) : [...prev, c.id]))
+                    }
+                  >
+                    <div className={`modal-checkbox${checked ? ' checked' : ''}`}>
+                      {checked && (
+                        <svg viewBox="0 0 24 24" width={10} height={10} fill="none" stroke="#FFFFFF" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M20 6L9 17l-5-5" />
+                        </svg>
+                      )}
+                    </div>
+                    <span className="modal-row-id">{c.code}</span>
+                    <span className="modal-row-title">{c.name}</span>
+                    <span className={`status ${CONTROL_EFFECTIVENESS_CLASS[c.effectiveness]}`}>
+                      {CONTROL_EFFECTIVENESS_LABEL[c.effectiveness]}
+                    </span>
+                  </div>
+                );
+              })}
+            {allControls && allControls.length === 0 && <div className="modal-empty">No controls in the library yet.</div>}
+          </div>
+        </Modal>
+      )}
     </>
   );
 }

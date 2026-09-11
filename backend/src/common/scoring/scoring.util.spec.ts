@@ -1,10 +1,5 @@
 import { ScoreBand } from '@prisma/client';
-import {
-  calculateScore,
-  computeScore,
-  recalculateRiskScores,
-  scoreToBand,
-} from './scoring.util';
+import { calculateScore, computeScore, scoreToBand } from './scoring.util';
 
 describe('scoring.util', () => {
   describe('calculateScore', () => {
@@ -43,50 +38,6 @@ describe('scoring.util', () => {
     it('combines score and band', () => {
       expect(computeScore(5, 5)).toEqual({ score: 25, band: ScoreBand.CRITICAL });
       expect(computeScore(1, 1)).toEqual({ score: 1, band: ScoreBand.LOW });
-    });
-  });
-
-  describe('recalculateRiskScores', () => {
-    it('computes inherent score/band without residual values', () => {
-      const result = recalculateRiskScores({ likelihood: 4, impact: 4 });
-      expect(result.inherentScore).toBe(16);
-      expect(result.inherentBand).toBe(ScoreBand.CRITICAL);
-      expect(result.residualScore).toBeNull();
-      expect(result.residualBand).toBeNull();
-    });
-
-    it('computes residual band from a manually-entered residual score', () => {
-      const result = recalculateRiskScores({
-        likelihood: 5,
-        impact: 5,
-        residualScore: 4,
-      });
-      expect(result.inherentScore).toBe(25);
-      expect(result.inherentBand).toBe(ScoreBand.CRITICAL);
-      expect(result.residualScore).toBe(4);
-      expect(result.residualBand).toBe(ScoreBand.MEDIUM);
-    });
-
-    it('treats residual as absent when no residual score is set', () => {
-      const result = recalculateRiskScores({
-        likelihood: 3,
-        impact: 3,
-        residualScore: null,
-      });
-      expect(result.residualScore).toBeNull();
-      expect(result.residualBand).toBeNull();
-    });
-
-    it('recalculates the residual band live when the manual score changes (simulating a treatment update)', () => {
-      const before = recalculateRiskScores({ likelihood: 5, impact: 5 });
-      const after = recalculateRiskScores({
-        likelihood: 5,
-        impact: 5,
-        residualScore: 2,
-      });
-      expect(before.residualScore).toBeNull();
-      expect(after.residualScore).toBe(2);
-      expect(after.residualBand).toBe(ScoreBand.LOW);
     });
   });
 });

@@ -8,6 +8,15 @@ export type AssessmentStatus = 'PLANNED' | 'IN_PROGRESS' | 'UNDER_REVIEW' | 'COM
 export type TreatmentActionStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED' | 'OVERDUE';
 export type NistCsfFunction = 'GOVERN' | 'IDENTIFY' | 'PROTECT' | 'DETECT' | 'RESPOND' | 'RECOVER';
 export type AuditAction = 'CREATE' | 'UPDATE' | 'DELETE';
+export type ControlType = 'PREVENTIVE' | 'DETECTIVE' | 'CORRECTIVE' | 'COMPENSATING';
+export type ControlFrequency = 'CONTINUOUS' | 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'QUARTERLY' | 'ANNUAL';
+export type ControlEffectiveness = 'EFFECTIVE' | 'PARTIALLY_EFFECTIVE' | 'INEFFECTIVE' | 'NOT_YET_TESTED';
+export type TestResult = 'PASS' | 'FAIL' | 'PARTIAL';
+export type TestMethod = 'INSPECTION' | 'WALKTHROUGH' | 'REPERFORMANCE' | 'AUTOMATED';
+// Whether Risk.residualScore was last set by ResidualScoringService (from
+// linked Controls) or by an explicit manual override - see Risk.residualSource.
+export type ResidualScoreSource = 'COMPUTED' | 'MANUAL';
+export type BusinessProcessCriticalityTier = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
 
 export interface OrgUnit {
   id: string;
@@ -72,15 +81,29 @@ export interface Risk {
   inherentBand: ScoreBand;
   treatmentStrategy: TreatmentStrategy | null;
   treatmentNote: string | null;
-  // Manually entered by the risk owner (1-25) - not derived from a
-  // likelihood/impact pair. Only the band is computed, live, from this value.
+  // The effective residual score (1-25): either live-computed from linked
+  // Controls (residualSource === 'COMPUTED') or residualScoreOverride
+  // (residualSource === 'MANUAL'). null when there's no override and no
+  // linked Controls with a test result yet.
   residualScore: number | null;
   residualBand: ScoreBand | null;
+  residualSource: ResidualScoreSource | null;
+  residualScoreOverride: number | null;
   notes: string | null;
   nextReviewDate: string | null;
   createdAt: string;
   updatedAt: string;
   isOverdue: boolean;
+  linkedControls: LinkedControl[];
+}
+
+/** Control as embedded within a Risk (list or detail) - just enough to render a chip/row. */
+export interface LinkedControl {
+  id: string;
+  code: string;
+  name: string;
+  type: ControlType;
+  effectiveness: ControlEffectiveness;
 }
 
 export interface RiskDetail extends Risk {
@@ -90,6 +113,110 @@ export interface RiskDetail extends Risk {
 
 export interface PaginatedRisks {
   items: Risk[];
+  total: number;
+}
+
+export interface Framework {
+  id: string;
+  name: string;
+  description: string;
+  orgUnitId: string;
+  orgUnit: OrgUnit;
+  ownerId: string;
+  owner: { id: string; name: string; email: string };
+}
+
+export interface Control {
+  id: string;
+  code: string;
+  name: string;
+  domainCategoryId: string;
+  domainCategory: Category;
+  nistCsfFunction: NistCsfFunction | null;
+  orgUnitId: string;
+  orgUnit: OrgUnit;
+  type: ControlType;
+  frequency: ControlFrequency;
+  effectiveness: ControlEffectiveness;
+  lastTestedAt: string | null;
+  frameworks: Framework[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Risk as embedded within a Control detail view - just enough to render a row/link. */
+export interface LinkedRisk {
+  id: string;
+  code: string;
+  title: string;
+  inherentScore: number;
+  inherentBand: ScoreBand;
+}
+
+export interface Evidence {
+  id: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  uploadedBy: { id: string; name: string; email: string };
+  uploadedAt: string;
+}
+
+export interface ControlTest {
+  id: string;
+  controlId: string;
+  control: { id: string; code: string; name: string; orgUnitId: string };
+  result: TestResult;
+  testMethod: TestMethod;
+  testerId: string;
+  tester: { id: string; name: string; email: string };
+  cycle: string;
+  testedDate: string;
+  dueDate: string;
+  exceptionNotes: string | null;
+  evidence: Evidence[];
+  isDueSoon: boolean;
+  isOverdue: boolean;
+}
+
+export interface ControlDetail extends Control {
+  tests: ControlTest[];
+  linkedRisks: LinkedRisk[];
+  auditHistory: AuditLogEntry[];
+}
+
+export interface BusinessProcess {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  orgUnitId: string;
+  orgUnit: OrgUnit;
+  ownerId: string;
+  owner: { id: string; name: string; email: string };
+  criticalityTier: BusinessProcessCriticalityTier;
+  rtoMinutes: number | null;
+  rpoMinutes: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BusinessProcessDetail extends BusinessProcess {
+  linkedRisks: {
+    id: string;
+    code: string;
+    title: string;
+    status: RiskStatus;
+    inherentScore: number;
+    inherentBand: ScoreBand;
+    category: Category;
+    owner: { id: string; name: string };
+  }[];
+  auditHistory: AuditLogEntry[];
+}
+
+export interface PaginatedBusinessProcesses {
+  items: BusinessProcess[];
   total: number;
 }
 

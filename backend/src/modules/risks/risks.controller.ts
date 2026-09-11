@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -6,6 +6,7 @@ import { AuthenticatedUser } from '../../common/types/authenticated-user';
 import { CreateRiskDto } from './dto/create-risk.dto';
 import { UpdateRiskDto } from './dto/update-risk.dto';
 import { QueryRisksDto } from './dto/query-risks.dto';
+import { LinkControlsDto } from './dto/link-controls.dto';
 import { RisksService } from './risks.service';
 
 @Controller('risks')
@@ -39,6 +40,12 @@ export class RisksController {
   @Roles(UserRole.ADMIN, UserRole.RISK_OWNER)
   update(@Param('id') id: string, @Body() dto: UpdateRiskDto, @CurrentUser() user: AuthenticatedUser) {
     return this.risksService.update(id, dto, user);
+  }
+
+  @Put(':id/controls')
+  @Roles(UserRole.ADMIN, UserRole.RISK_OWNER)
+  updateLinkedControls(@Param('id') id: string, @Body() dto: LinkControlsDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.risksService.updateLinkedControls(id, dto, user);
   }
 
   @Delete(':id')

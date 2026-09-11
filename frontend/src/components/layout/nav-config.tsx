@@ -48,6 +48,13 @@ const ICONS = {
       <path d="M9 12.5l2 2 4-4.5" />
     </svg>
   ),
+  biaRegister: (
+    <svg {...strokeProps}>
+      <path d="M12 3l7 3.5v5.2c0 4.6-3.1 7.5-7 8.8-3.9-1.3-7-4.2-7-8.8V6.5L12 3z" />
+      <line x1="12" y1="8" x2="12" y2="12.5" />
+      <circle cx="12" cy="15.3" r="0.9" fill="currentColor" />
+    </svg>
+  ),
   controlLibrary: (
     <svg {...strokeProps}>
       <rect x="4" y="4" width="6" height="16" rx="1" />
@@ -124,12 +131,13 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: 'Risk Register', href: '/risk-register', icon: ICONS.riskRegister },
       { label: 'Risk Assessment', href: '/risk-assessment/assessments', icon: ICONS.riskAssessment },
+      { label: 'BIA Register', href: '/bia-register', icon: ICONS.biaRegister },
     ],
   },
   {
     label: 'Controls',
     items: [
-      { label: 'Control Library', locked: true, phase: 'Fase 2', icon: ICONS.controlLibrary },
+      { label: 'Control Library', href: '/controls', icon: ICONS.controlLibrary },
       { label: 'Control Testing', locked: true, phase: 'Fase 2', icon: ICONS.controlTesting },
     ],
   },
