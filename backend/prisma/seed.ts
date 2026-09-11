@@ -43,11 +43,13 @@ async function main() {
   // Category taxonomy (configurable, admin-editable)
   // ---------------------------------------------------------------------
   const categoryNames = [
-    'IT-sikkerhed',
-    'Informationssikkerhed',
-    'AI-governance',
-    'Leverandørkæde',
-    'Fysisk sikkerhed',
+    'Access Control',
+    'Threat / Malware',
+    'Data Protection',
+    'Third Party',
+    'Business Continuity',
+    'Vulnerability Mgmt',
+    'Cryptography',
   ];
   const categories: Record<string, Awaited<ReturnType<typeof prisma.category.upsert>>> = {};
   for (let i = 0; i < categoryNames.length; i++) {
@@ -58,11 +60,13 @@ async function main() {
       create: { name, sortOrder: i },
     });
   }
-  const catIT = categories['IT-sikkerhed'];
-  const catInfo = categories['Informationssikkerhed'];
-  const catAI = categories['AI-governance'];
-  const catSupplier = categories['Leverandørkæde'];
-  const catPhysical = categories['Fysisk sikkerhed'];
+  const catAccess = categories['Access Control'];
+  const catThreat = categories['Threat / Malware'];
+  const catData = categories['Data Protection'];
+  const catThirdParty = categories['Third Party'];
+  const catContinuity = categories['Business Continuity'];
+  const catVuln = categories['Vulnerability Mgmt'];
+  const catCrypto = categories['Cryptography'];
 
   // ---------------------------------------------------------------------
   // Users
@@ -181,7 +185,7 @@ async function main() {
     key: string;
     title: string;
     description: string;
-    category: typeof catIT;
+    category: typeof catAccess;
     orgUnitId: string;
     ownerId: string;
     status: RiskStatus;
@@ -203,7 +207,7 @@ async function main() {
       title: 'Utilstrækkelig MFA-dækning på fjernadgang',
       description:
         'Ikke alle systemer med ekstern adgang kræver multi-faktor autentificering, hvilket øger risikoen for kontokompromittering.',
-      category: catIT,
+      category: catAccess,
       orgUnitId: orgAps.id,
       ownerId: riskOwnerAps.id,
       status: RiskStatus.MITIGATING,
@@ -219,7 +223,7 @@ async function main() {
       key: 'firmware',
       title: 'Forældede firmware-versioner på lagerstyringssystemer',
       description: 'Flere lagerstyringsenheder kører firmware uden aktiv sikkerhedsopdatering fra leverandøren.',
-      category: catIT,
+      category: catVuln,
       orgUnitId: orgLogistik.id,
       ownerId: riskOwnerLogistik.id,
       status: RiskStatus.ASSESSED,
@@ -231,7 +235,7 @@ async function main() {
       key: 'kryptering',
       title: 'Manglende kryptering af bærbare enheder',
       description: 'En del af de udleverede bærbare computere i Foodservice-divisionen har ikke fuld diskkryptering aktiveret.',
-      category: catInfo,
+      category: catCrypto,
       orgUnitId: orgFoodservice.id,
       ownerId: riskOwnerFoodservice.id,
       status: RiskStatus.MITIGATING,
@@ -245,7 +249,7 @@ async function main() {
       key: 'logging',
       title: 'Utilstrækkelig logging af adgang til kundedata',
       description: 'Adgang til systemer med persondata om kunder logges ikke konsistent på tværs af platforme.',
-      category: catInfo,
+      category: catData,
       orgUnitId: orgAps.id,
       ownerId: riskOwnerAps.id,
       status: RiskStatus.IDENTIFIED,
@@ -257,7 +261,7 @@ async function main() {
       key: 'ai-governance',
       title: 'AI-model til efterspørgselsprognose mangler governance',
       description: 'Den interne AI-model, der bruges til efterspørgselsprognoser, har ikke en dokumenteret ejerskabs- eller kontrolstruktur.',
-      category: catAI,
+      category: catData,
       orgUnitId: orgAps.id,
       ownerId: riskOwnerAps.id,
       status: RiskStatus.IDENTIFIED,
@@ -269,7 +273,7 @@ async function main() {
       key: 'skygge-ai',
       title: 'Skygge-AI-værktøjer anvendt af medarbejdere',
       description: 'Medarbejdere anvender eksterne generative AI-værktøjer uden central godkendelse, herunder til dokumenter med interne data.',
-      category: catAI,
+      category: catData,
       orgUnitId: orgLogistik.id,
       ownerId: riskOwnerLogistik.id,
       status: RiskStatus.ASSESSED,
@@ -281,7 +285,7 @@ async function main() {
       key: 'leverandoer-beredskab',
       title: 'Kritisk leverandør uden dokumenteret beredskabsplan',
       description: 'En nøgleleverandør til lagerdriften kan ikke fremvise en opdateret og testet beredskabsplan.',
-      category: catSupplier,
+      category: catThirdParty,
       orgUnitId: orgLogistik.id,
       ownerId: riskOwnerLogistik.id,
       status: RiskStatus.MITIGATING,
@@ -297,7 +301,7 @@ async function main() {
       key: 'koeletransport',
       title: 'Enkeltleverandør-afhængighed for køletransport',
       description: 'Størstedelen af den kølede transportkapacitet leveres af én enkelt leverandør uden reel backup-kapacitet.',
-      category: catSupplier,
+      category: catContinuity,
       orgUnitId: orgFoodservice.id,
       ownerId: riskOwnerFoodservice.id,
       status: RiskStatus.ACCEPTED,
@@ -312,7 +316,7 @@ async function main() {
       key: 'adgangskontrol-lager',
       title: 'Utilstrækkelig adgangskontrol i lagerhaller',
       description: 'Adgangskort deles i praksis mellem flere medarbejdere i enkelte lagerhaller.',
-      category: catPhysical,
+      category: catAccess,
       orgUnitId: orgLogistik.id,
       ownerId: riskOwnerLogistik.id,
       status: RiskStatus.IDENTIFIED,
@@ -324,7 +328,7 @@ async function main() {
       key: 'brandsikring',
       title: 'Manglende brandsikring i serverrum',
       description: 'Et af de mindre serverrum mangler automatisk brandslukningsanlæg.',
-      category: catPhysical,
+      category: catContinuity,
       orgUnitId: orgAps.id,
       ownerId: riskOwnerAps.id,
       status: RiskStatus.MITIGATING,
@@ -338,7 +342,7 @@ async function main() {
       key: 'phishing',
       title: 'Phishing-modstandsdygtighed blandt medarbejdere',
       description: 'Seneste phishing-simulation viste en klikrate over målsætningen blandt Foodservice-medarbejdere.',
-      category: catIT,
+      category: catThreat,
       orgUnitId: orgFoodservice.id,
       ownerId: riskOwnerFoodservice.id,
       status: RiskStatus.MITIGATING,
@@ -354,7 +358,7 @@ async function main() {
       key: 'ot-it-segmentering',
       title: 'Manglende segmentering af OT/IT-netværk på lager',
       description: 'Driftsteknologi (OT) på automatiserede lagre er ikke tilstrækkeligt segmenteret fra det almindelige IT-netværk.',
-      category: catIT,
+      category: catAccess,
       orgUnitId: orgLogistik.id,
       ownerId: riskOwnerLogistik.id,
       status: RiskStatus.ASSESSED,
@@ -366,7 +370,7 @@ async function main() {
       key: 'gdpr-deling',
       title: 'GDPR-efterlevelse ved deling af persondata med leverandører',
       description: 'Historisk manglede der databehandleraftaler med enkelte leverandører, der modtog persondata.',
-      category: catInfo,
+      category: catData,
       orgUnitId: orgFoodservice.id,
       ownerId: riskOwnerFoodservice.id,
       status: RiskStatus.CLOSED,
@@ -381,7 +385,7 @@ async function main() {
       key: 'offsite-backup',
       title: 'Manglende offsite-backup af kritiske systemer',
       description: 'Backup af enkelte forretningskritiske systemer opbevares kun on-premise.',
-      category: catIT,
+      category: catContinuity,
       orgUnitId: orgAps.id,
       ownerId: riskOwnerAps.id,
       status: RiskStatus.MITIGATING,
@@ -396,7 +400,7 @@ async function main() {
       key: 'besoegsregistrering',
       title: 'Mindre uoverensstemmelse i besøgsregistrering',
       description: 'Enkelte besøgende i hovedkontoret er ikke konsekvent registreret ved indgang.',
-      category: catPhysical,
+      category: catAccess,
       orgUnitId: orgAps.id,
       ownerId: riskOwnerAps.id,
       status: RiskStatus.IDENTIFIED,
@@ -649,7 +653,7 @@ async function main() {
   interface ControlSeed {
     code: string;
     name: string;
-    category: typeof catIT;
+    category: typeof catAccess;
     orgUnitId: string;
     type: ControlType;
     frequency: ControlFrequency;
@@ -658,24 +662,24 @@ async function main() {
   }
 
   const controlSeeds: ControlSeed[] = [
-    { code: 'CTL-001', name: 'Multi-faktor autentificering for fjernadgang', category: catIT, orgUnitId: orgAps.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.CONTINUOUS, nistCsfFunction: NistCsfFunction.PROTECT, frameworks: [nis2, iso27001] },
-    { code: 'CTL-002', name: 'Kvartalsvis sårbarhedsscanning', category: catIT, orgUnitId: orgAps.id, type: ControlType.DETECTIVE, frequency: ControlFrequency.QUARTERLY, nistCsfFunction: NistCsfFunction.DETECT, frameworks: [nis2, iso27001] },
-    { code: 'CTL-003', name: 'Patch management for serverinfrastruktur', category: catIT, orgUnitId: orgLogistik.id, type: ControlType.CORRECTIVE, frequency: ControlFrequency.MONTHLY, nistCsfFunction: NistCsfFunction.PROTECT, frameworks: [nis2] },
-    { code: 'CTL-004', name: 'Netværkssegmentering mellem IT og OT', category: catIT, orgUnitId: orgLogistik.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.ANNUAL, nistCsfFunction: NistCsfFunction.PROTECT, frameworks: [nis2] },
-    { code: 'CTL-005', name: 'Phishing-simulation og awareness-træning', category: catIT, orgUnitId: orgFoodservice.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.QUARTERLY, nistCsfFunction: NistCsfFunction.PROTECT, frameworks: [iso27001] },
-    { code: 'CTL-018', name: 'Offsite backup af kritiske systemer', category: catIT, orgUnitId: orgAps.id, type: ControlType.CORRECTIVE, frequency: ControlFrequency.WEEKLY, nistCsfFunction: NistCsfFunction.RECOVER, frameworks: [nis2, iso27001] },
-    { code: 'CTL-006', name: 'Kryptering af data på bærbare enheder', category: catInfo, orgUnitId: orgFoodservice.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.CONTINUOUS, frameworks: [iso27001, gdpr] },
-    { code: 'CTL-007', name: 'Adgangsstyring og periodisk rettighedsgennemgang', category: catInfo, orgUnitId: orgAps.id, type: ControlType.DETECTIVE, frequency: ControlFrequency.QUARTERLY, frameworks: [nis2, iso27001] },
-    { code: 'CTL-008', name: 'Logning og overvågning af adgang til persondata', category: catInfo, orgUnitId: orgAps.id, type: ControlType.DETECTIVE, frequency: ControlFrequency.CONTINUOUS, frameworks: [nis2, iso27001, gdpr] },
-    { code: 'CTL-009', name: 'Databehandleraftaler med leverandører', category: catInfo, orgUnitId: orgFoodservice.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.ANNUAL, frameworks: [gdpr] },
-    { code: 'CTL-010', name: 'Governance-proces for AI-systemer', category: catAI, orgUnitId: orgAps.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.ANNUAL, frameworks: [] },
-    { code: 'CTL-011', name: 'Register over AI-anvendelser', category: catAI, orgUnitId: orgLogistik.id, type: ControlType.DETECTIVE, frequency: ControlFrequency.QUARTERLY, frameworks: [] },
-    { code: 'CTL-012', name: 'Due diligence af kritiske leverandører', category: catSupplier, orgUnitId: orgLogistik.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.ANNUAL, frameworks: [nis2] },
-    { code: 'CTL-013', name: 'Beredskabsplan-gennemgang for nøgleleverandører', category: catSupplier, orgUnitId: orgLogistik.id, type: ControlType.DETECTIVE, frequency: ControlFrequency.ANNUAL, frameworks: [nis2] },
-    { code: 'CTL-014', name: 'Alternativ leverandørkortlægning for køletransport', category: catSupplier, orgUnitId: orgFoodservice.id, type: ControlType.COMPENSATING, frequency: ControlFrequency.ANNUAL, frameworks: [] },
-    { code: 'CTL-015', name: 'Adgangskontrol (ID-kort) til lagerfaciliteter', category: catPhysical, orgUnitId: orgLogistik.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.CONTINUOUS, frameworks: [iso27001] },
-    { code: 'CTL-016', name: 'Brandsikringssystem i serverrum', category: catPhysical, orgUnitId: orgAps.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.ANNUAL, frameworks: [iso27001] },
-    { code: 'CTL-017', name: 'Besøgsregistrering og eskortepolitik', category: catPhysical, orgUnitId: orgAps.id, type: ControlType.DETECTIVE, frequency: ControlFrequency.CONTINUOUS, frameworks: [iso27001] },
+    { code: 'CTL-001', name: 'Multi-faktor autentificering for fjernadgang', category: catAccess, orgUnitId: orgAps.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.CONTINUOUS, nistCsfFunction: NistCsfFunction.PROTECT, frameworks: [nis2, iso27001] },
+    { code: 'CTL-002', name: 'Kvartalsvis sårbarhedsscanning', category: catVuln, orgUnitId: orgAps.id, type: ControlType.DETECTIVE, frequency: ControlFrequency.QUARTERLY, nistCsfFunction: NistCsfFunction.DETECT, frameworks: [nis2, iso27001] },
+    { code: 'CTL-003', name: 'Patch management for serverinfrastruktur', category: catVuln, orgUnitId: orgLogistik.id, type: ControlType.CORRECTIVE, frequency: ControlFrequency.MONTHLY, nistCsfFunction: NistCsfFunction.PROTECT, frameworks: [nis2] },
+    { code: 'CTL-004', name: 'Netværkssegmentering mellem IT og OT', category: catAccess, orgUnitId: orgLogistik.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.ANNUAL, nistCsfFunction: NistCsfFunction.PROTECT, frameworks: [nis2] },
+    { code: 'CTL-005', name: 'Phishing-simulation og awareness-træning', category: catThreat, orgUnitId: orgFoodservice.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.QUARTERLY, nistCsfFunction: NistCsfFunction.PROTECT, frameworks: [iso27001] },
+    { code: 'CTL-018', name: 'Offsite backup af kritiske systemer', category: catContinuity, orgUnitId: orgAps.id, type: ControlType.CORRECTIVE, frequency: ControlFrequency.WEEKLY, nistCsfFunction: NistCsfFunction.RECOVER, frameworks: [nis2, iso27001] },
+    { code: 'CTL-006', name: 'Kryptering af data på bærbare enheder', category: catCrypto, orgUnitId: orgFoodservice.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.CONTINUOUS, frameworks: [iso27001, gdpr] },
+    { code: 'CTL-007', name: 'Adgangsstyring og periodisk rettighedsgennemgang', category: catAccess, orgUnitId: orgAps.id, type: ControlType.DETECTIVE, frequency: ControlFrequency.QUARTERLY, frameworks: [nis2, iso27001] },
+    { code: 'CTL-008', name: 'Logning og overvågning af adgang til persondata', category: catData, orgUnitId: orgAps.id, type: ControlType.DETECTIVE, frequency: ControlFrequency.CONTINUOUS, frameworks: [nis2, iso27001, gdpr] },
+    { code: 'CTL-009', name: 'Databehandleraftaler med leverandører', category: catThirdParty, orgUnitId: orgFoodservice.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.ANNUAL, frameworks: [gdpr] },
+    { code: 'CTL-010', name: 'Governance-proces for AI-systemer', category: catData, orgUnitId: orgAps.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.ANNUAL, frameworks: [] },
+    { code: 'CTL-011', name: 'Register over AI-anvendelser', category: catData, orgUnitId: orgLogistik.id, type: ControlType.DETECTIVE, frequency: ControlFrequency.QUARTERLY, frameworks: [] },
+    { code: 'CTL-012', name: 'Due diligence af kritiske leverandører', category: catThirdParty, orgUnitId: orgLogistik.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.ANNUAL, frameworks: [nis2] },
+    { code: 'CTL-013', name: 'Beredskabsplan-gennemgang for nøgleleverandører', category: catThirdParty, orgUnitId: orgLogistik.id, type: ControlType.DETECTIVE, frequency: ControlFrequency.ANNUAL, frameworks: [nis2] },
+    { code: 'CTL-014', name: 'Alternativ leverandørkortlægning for køletransport', category: catContinuity, orgUnitId: orgFoodservice.id, type: ControlType.COMPENSATING, frequency: ControlFrequency.ANNUAL, frameworks: [] },
+    { code: 'CTL-015', name: 'Adgangskontrol (ID-kort) til lagerfaciliteter', category: catAccess, orgUnitId: orgLogistik.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.CONTINUOUS, frameworks: [iso27001] },
+    { code: 'CTL-016', name: 'Brandsikringssystem i serverrum', category: catContinuity, orgUnitId: orgAps.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.ANNUAL, frameworks: [iso27001] },
+    { code: 'CTL-017', name: 'Besøgsregistrering og eskortepolitik', category: catAccess, orgUnitId: orgAps.id, type: ControlType.DETECTIVE, frequency: ControlFrequency.CONTINUOUS, frameworks: [iso27001] },
   ];
 
   const controls: Record<string, Awaited<ReturnType<typeof prisma.control.create>>> = {};
