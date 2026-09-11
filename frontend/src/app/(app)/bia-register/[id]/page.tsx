@@ -133,8 +133,8 @@ export default function BusinessProcessDetailPage() {
         )}
       </div>
 
-      <div className="content" style={{ display: 'flex', gap: 18, alignItems: 'flex-start' }}>
-        <div className="col-left" style={{ flex: 1.5 }}>
+      <div className="content two-col">
+        <div className="col-left">
           <form id="bia-detail-form" onSubmit={handleSave} className="card">
             <div className="card-header">
               <div className="section-title">Business Process Details</div>
@@ -171,7 +171,7 @@ export default function BusinessProcessDetailPage() {
           </div>
         </div>
 
-        <div className="col-right" style={{ flex: 1 }}>
+        <div className="col-right">
           <div className="card">
             <div className="card-header">
               <div className="section-title">Recovery Objectives</div>

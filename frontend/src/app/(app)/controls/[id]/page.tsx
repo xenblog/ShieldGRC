@@ -177,8 +177,8 @@ export default function ControlDetailPage() {
         )}
       </div>
 
-      <div className="content" style={{ display: 'flex', gap: 18, alignItems: 'flex-start' }}>
-        <div className="col-left" style={{ flex: 1.5 }}>
+      <div className="content two-col">
+        <div className="col-left">
           <form id="control-detail-form" onSubmit={handleSave} className="card">
             <div className="card-header">
               <div className="section-title">Control Details</div>
@@ -279,7 +279,7 @@ export default function ControlDetailPage() {
           </div>
         </div>
 
-        <div className="col-right" style={{ flex: 1 }}>
+        <div className="col-right">
           <div className="card">
             <div className="card-header">
               <div className="section-title">Summary</div>
