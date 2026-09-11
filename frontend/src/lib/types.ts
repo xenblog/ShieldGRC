@@ -126,6 +126,16 @@ export interface Framework {
   owner: { id: string; name: string; email: string };
 }
 
+// An individual clause/control within a Framework (e.g. ISO 27001:2022
+// "A.5.1"), that a Control Library Control maps to - not a whole Framework.
+export interface FrameworkControl {
+  id: string;
+  code: string;
+  title: string;
+  description: string | null;
+  framework: { id: string; name: string };
+}
+
 export interface Control {
   id: string;
   code: string;
@@ -139,7 +149,7 @@ export interface Control {
   frequency: ControlFrequency;
   effectiveness: ControlEffectiveness;
   lastTestedAt: string | null;
-  frameworks: Framework[];
+  frameworkControls: FrameworkControl[];
   createdAt: string;
   updatedAt: string;
 }

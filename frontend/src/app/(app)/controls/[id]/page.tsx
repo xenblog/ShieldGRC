@@ -9,7 +9,7 @@ import { useAuth } from '@/lib/auth-context';
 import { Modal } from '@/components/Modal';
 import { ControlFields, ControlFieldValues } from '@/components/controls/ControlFields';
 import { BandBadge } from '@/components/BandBadge';
-import { Category, ControlDetail, Framework, OrgUnit, TestMethod, TestResult, UserSummary } from '@/lib/types';
+import { Category, ControlDetail, FrameworkControl, OrgUnit, TestMethod, TestResult, UserSummary } from '@/lib/types';
 import {
   CONTROL_EFFECTIVENESS_CLASS,
   CONTROL_EFFECTIVENESS_LABEL,
@@ -32,7 +32,7 @@ function toFieldValues(control: ControlDetail): ControlFieldValues {
     type: control.type,
     frequency: control.frequency,
     nistCsfFunction: control.nistCsfFunction ?? '',
-    frameworkIds: control.frameworks.map((f) => f.id),
+    frameworkControlIds: control.frameworkControls.map((fc) => fc.id),
   };
 }
 
@@ -49,7 +49,7 @@ export default function ControlDetailPage() {
   const { data: control, loading, setData } = useApiGet<ControlDetail>(`/controls/${params.id}`, [params.id]);
   const { data: categories } = useApiGet<Category[]>('/categories');
   const { data: orgUnits } = useApiGet<OrgUnit[]>('/org-units');
-  const { data: frameworks } = useApiGet<Framework[]>('/frameworks');
+  const { data: frameworkControls } = useApiGet<FrameworkControl[]>('/framework-controls');
   const { data: users } = useApiGet<UserSummary[]>('/users/assignable');
 
   const [values, setValues] = useState<ControlFieldValues | null>(null);
@@ -184,7 +184,7 @@ export default function ControlDetailPage() {
               <div className="section-title">Control Details</div>
               <span className="created-note">Created {new Date(control.createdAt).toLocaleDateString()}</span>
             </div>
-            <ControlFields values={current} onChange={onChange} categories={categories} orgUnits={orgUnits} frameworks={frameworks} disabled={!canEdit} />
+            <ControlFields values={current} onChange={onChange} categories={categories} orgUnits={orgUnits} frameworkControls={frameworkControls} disabled={!canEdit} />
             {error && (
               <p className="helper-note" style={{ color: 'var(--dgs-red)' }}>
                 {error}

@@ -648,6 +648,52 @@ async function main() {
   );
 
   // ---------------------------------------------------------------------
+  // Framework Controls - individual clauses within each Framework that a
+  // Control Library Control maps to (e.g. ISO 27001:2022 "A.5.1"), not the
+  // Framework as a whole.
+  //
+  // NOTE: this is a small, illustrative starter catalog, not a verified or
+  // exhaustive transcription of the real standards - ISO 27001:2022 Annex A
+  // alone has 93 controls. Verify codes/titles against your own copy of
+  // each standard before relying on this for a real audit or certification;
+  // add the rest via POST /api/framework-controls as needed.
+  // ---------------------------------------------------------------------
+  interface FrameworkControlSeed {
+    key: string;
+    framework: typeof nis2;
+    code: string;
+    title: string;
+  }
+
+  const frameworkControlSeeds: FrameworkControlSeed[] = [
+    { key: 'iso5.1', framework: iso27001, code: 'A.5.1', title: 'Policies for information security' },
+    { key: 'iso5.18', framework: iso27001, code: 'A.5.18', title: 'Access rights' },
+    { key: 'iso5.19', framework: iso27001, code: 'A.5.19', title: 'Information security in supplier relationships' },
+    { key: 'iso5.20', framework: iso27001, code: 'A.5.20', title: 'Addressing information security within supplier agreements' },
+    { key: 'iso6.3', framework: iso27001, code: 'A.6.3', title: 'Information security awareness, education and training' },
+    { key: 'iso7.2', framework: iso27001, code: 'A.7.2', title: 'Physical entry' },
+    { key: 'iso7.5', framework: iso27001, code: 'A.7.5', title: 'Protecting against physical and environmental threats' },
+    { key: 'iso8.5', framework: iso27001, code: 'A.8.5', title: 'Secure authentication' },
+    { key: 'iso8.8', framework: iso27001, code: 'A.8.8', title: 'Management of technical vulnerabilities' },
+    { key: 'iso8.13', framework: iso27001, code: 'A.8.13', title: 'Information backup' },
+    { key: 'iso8.16', framework: iso27001, code: 'A.8.16', title: 'Monitoring activities' },
+    { key: 'iso8.22', framework: iso27001, code: 'A.8.22', title: 'Segregation of networks' },
+    { key: 'iso8.24', framework: iso27001, code: 'A.8.24', title: 'Use of cryptography' },
+    { key: 'gdpr28', framework: gdpr, code: 'Art. 28', title: 'Processor' },
+    { key: 'gdpr32', framework: gdpr, code: 'Art. 32', title: 'Security of processing' },
+    { key: 'nis21', framework: nis2, code: 'Art. 21', title: 'Cybersecurity risk-management measures' },
+  ];
+
+  const frameworkControls: Record<string, Awaited<ReturnType<typeof prisma.frameworkControl.upsert>>> = {};
+  for (const seed of frameworkControlSeeds) {
+    frameworkControls[seed.key] = await prisma.frameworkControl.upsert({
+      where: { frameworkId_code: { frameworkId: seed.framework.id, code: seed.code } },
+      update: {},
+      create: { frameworkId: seed.framework.id, code: seed.code, title: seed.title },
+    });
+  }
+
+  // ---------------------------------------------------------------------
   // Control Library
   // ---------------------------------------------------------------------
   interface ControlSeed {
@@ -658,28 +704,30 @@ async function main() {
     type: ControlType;
     frequency: ControlFrequency;
     nistCsfFunction?: NistCsfFunction;
-    frameworks: (typeof nis2)[];
+    // Keys into frameworkControlSeeds above - the specific clause(s) this
+    // control satisfies, not whole Frameworks.
+    frameworkControlKeys: string[];
   }
 
   const controlSeeds: ControlSeed[] = [
-    { code: 'CTL-001', name: 'Multi-faktor autentificering for fjernadgang', category: catAccess, orgUnitId: orgAps.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.CONTINUOUS, nistCsfFunction: NistCsfFunction.PROTECT, frameworks: [nis2, iso27001] },
-    { code: 'CTL-002', name: 'Kvartalsvis sårbarhedsscanning', category: catVuln, orgUnitId: orgAps.id, type: ControlType.DETECTIVE, frequency: ControlFrequency.QUARTERLY, nistCsfFunction: NistCsfFunction.DETECT, frameworks: [nis2, iso27001] },
-    { code: 'CTL-003', name: 'Patch management for serverinfrastruktur', category: catVuln, orgUnitId: orgLogistik.id, type: ControlType.CORRECTIVE, frequency: ControlFrequency.MONTHLY, nistCsfFunction: NistCsfFunction.PROTECT, frameworks: [nis2] },
-    { code: 'CTL-004', name: 'Netværkssegmentering mellem IT og OT', category: catAccess, orgUnitId: orgLogistik.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.ANNUAL, nistCsfFunction: NistCsfFunction.PROTECT, frameworks: [nis2] },
-    { code: 'CTL-005', name: 'Phishing-simulation og awareness-træning', category: catThreat, orgUnitId: orgFoodservice.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.QUARTERLY, nistCsfFunction: NistCsfFunction.PROTECT, frameworks: [iso27001] },
-    { code: 'CTL-018', name: 'Offsite backup af kritiske systemer', category: catContinuity, orgUnitId: orgAps.id, type: ControlType.CORRECTIVE, frequency: ControlFrequency.WEEKLY, nistCsfFunction: NistCsfFunction.RECOVER, frameworks: [nis2, iso27001] },
-    { code: 'CTL-006', name: 'Kryptering af data på bærbare enheder', category: catCrypto, orgUnitId: orgFoodservice.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.CONTINUOUS, frameworks: [iso27001, gdpr] },
-    { code: 'CTL-007', name: 'Adgangsstyring og periodisk rettighedsgennemgang', category: catAccess, orgUnitId: orgAps.id, type: ControlType.DETECTIVE, frequency: ControlFrequency.QUARTERLY, frameworks: [nis2, iso27001] },
-    { code: 'CTL-008', name: 'Logning og overvågning af adgang til persondata', category: catData, orgUnitId: orgAps.id, type: ControlType.DETECTIVE, frequency: ControlFrequency.CONTINUOUS, frameworks: [nis2, iso27001, gdpr] },
-    { code: 'CTL-009', name: 'Databehandleraftaler med leverandører', category: catThirdParty, orgUnitId: orgFoodservice.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.ANNUAL, frameworks: [gdpr] },
-    { code: 'CTL-010', name: 'Governance-proces for AI-systemer', category: catData, orgUnitId: orgAps.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.ANNUAL, frameworks: [] },
-    { code: 'CTL-011', name: 'Register over AI-anvendelser', category: catData, orgUnitId: orgLogistik.id, type: ControlType.DETECTIVE, frequency: ControlFrequency.QUARTERLY, frameworks: [] },
-    { code: 'CTL-012', name: 'Due diligence af kritiske leverandører', category: catThirdParty, orgUnitId: orgLogistik.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.ANNUAL, frameworks: [nis2] },
-    { code: 'CTL-013', name: 'Beredskabsplan-gennemgang for nøgleleverandører', category: catThirdParty, orgUnitId: orgLogistik.id, type: ControlType.DETECTIVE, frequency: ControlFrequency.ANNUAL, frameworks: [nis2] },
-    { code: 'CTL-014', name: 'Alternativ leverandørkortlægning for køletransport', category: catContinuity, orgUnitId: orgFoodservice.id, type: ControlType.COMPENSATING, frequency: ControlFrequency.ANNUAL, frameworks: [] },
-    { code: 'CTL-015', name: 'Adgangskontrol (ID-kort) til lagerfaciliteter', category: catAccess, orgUnitId: orgLogistik.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.CONTINUOUS, frameworks: [iso27001] },
-    { code: 'CTL-016', name: 'Brandsikringssystem i serverrum', category: catContinuity, orgUnitId: orgAps.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.ANNUAL, frameworks: [iso27001] },
-    { code: 'CTL-017', name: 'Besøgsregistrering og eskortepolitik', category: catAccess, orgUnitId: orgAps.id, type: ControlType.DETECTIVE, frequency: ControlFrequency.CONTINUOUS, frameworks: [iso27001] },
+    { code: 'CTL-001', name: 'Multi-faktor autentificering for fjernadgang', category: catAccess, orgUnitId: orgAps.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.CONTINUOUS, nistCsfFunction: NistCsfFunction.PROTECT, frameworkControlKeys: ['iso8.5', 'nis21'] },
+    { code: 'CTL-002', name: 'Kvartalsvis sårbarhedsscanning', category: catVuln, orgUnitId: orgAps.id, type: ControlType.DETECTIVE, frequency: ControlFrequency.QUARTERLY, nistCsfFunction: NistCsfFunction.DETECT, frameworkControlKeys: ['iso8.8', 'nis21'] },
+    { code: 'CTL-003', name: 'Patch management for serverinfrastruktur', category: catVuln, orgUnitId: orgLogistik.id, type: ControlType.CORRECTIVE, frequency: ControlFrequency.MONTHLY, nistCsfFunction: NistCsfFunction.PROTECT, frameworkControlKeys: ['iso8.8'] },
+    { code: 'CTL-004', name: 'Netværkssegmentering mellem IT og OT', category: catAccess, orgUnitId: orgLogistik.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.ANNUAL, nistCsfFunction: NistCsfFunction.PROTECT, frameworkControlKeys: ['iso8.22', 'nis21'] },
+    { code: 'CTL-005', name: 'Phishing-simulation og awareness-træning', category: catThreat, orgUnitId: orgFoodservice.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.QUARTERLY, nistCsfFunction: NistCsfFunction.PROTECT, frameworkControlKeys: ['iso6.3'] },
+    { code: 'CTL-018', name: 'Offsite backup af kritiske systemer', category: catContinuity, orgUnitId: orgAps.id, type: ControlType.CORRECTIVE, frequency: ControlFrequency.WEEKLY, nistCsfFunction: NistCsfFunction.RECOVER, frameworkControlKeys: ['iso8.13', 'nis21'] },
+    { code: 'CTL-006', name: 'Kryptering af data på bærbare enheder', category: catCrypto, orgUnitId: orgFoodservice.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.CONTINUOUS, frameworkControlKeys: ['iso8.24', 'gdpr32'] },
+    { code: 'CTL-007', name: 'Adgangsstyring og periodisk rettighedsgennemgang', category: catAccess, orgUnitId: orgAps.id, type: ControlType.DETECTIVE, frequency: ControlFrequency.QUARTERLY, frameworkControlKeys: ['iso5.18'] },
+    { code: 'CTL-008', name: 'Logning og overvågning af adgang til persondata', category: catData, orgUnitId: orgAps.id, type: ControlType.DETECTIVE, frequency: ControlFrequency.CONTINUOUS, frameworkControlKeys: ['iso8.16', 'gdpr32'] },
+    { code: 'CTL-009', name: 'Databehandleraftaler med leverandører', category: catThirdParty, orgUnitId: orgFoodservice.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.ANNUAL, frameworkControlKeys: ['gdpr28'] },
+    { code: 'CTL-010', name: 'Governance-proces for AI-systemer', category: catData, orgUnitId: orgAps.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.ANNUAL, frameworkControlKeys: ['iso5.1'] },
+    { code: 'CTL-011', name: 'Register over AI-anvendelser', category: catData, orgUnitId: orgLogistik.id, type: ControlType.DETECTIVE, frequency: ControlFrequency.QUARTERLY, frameworkControlKeys: [] },
+    { code: 'CTL-012', name: 'Due diligence af kritiske leverandører', category: catThirdParty, orgUnitId: orgLogistik.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.ANNUAL, frameworkControlKeys: ['iso5.19'] },
+    { code: 'CTL-013', name: 'Beredskabsplan-gennemgang for nøgleleverandører', category: catThirdParty, orgUnitId: orgLogistik.id, type: ControlType.DETECTIVE, frequency: ControlFrequency.ANNUAL, frameworkControlKeys: ['iso5.20'] },
+    { code: 'CTL-014', name: 'Alternativ leverandørkortlægning for køletransport', category: catContinuity, orgUnitId: orgFoodservice.id, type: ControlType.COMPENSATING, frequency: ControlFrequency.ANNUAL, frameworkControlKeys: ['nis21'] },
+    { code: 'CTL-015', name: 'Adgangskontrol (ID-kort) til lagerfaciliteter', category: catAccess, orgUnitId: orgLogistik.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.CONTINUOUS, frameworkControlKeys: ['iso7.2'] },
+    { code: 'CTL-016', name: 'Brandsikringssystem i serverrum', category: catContinuity, orgUnitId: orgAps.id, type: ControlType.PREVENTIVE, frequency: ControlFrequency.ANNUAL, frameworkControlKeys: ['iso7.5'] },
+    { code: 'CTL-017', name: 'Besøgsregistrering og eskortepolitik', category: catAccess, orgUnitId: orgAps.id, type: ControlType.DETECTIVE, frequency: ControlFrequency.CONTINUOUS, frameworkControlKeys: ['iso7.2'] },
   ];
 
   const controls: Record<string, Awaited<ReturnType<typeof prisma.control.create>>> = {};
@@ -695,7 +743,9 @@ async function main() {
           orgUnitId: seed.orgUnitId,
           type: seed.type,
           frequency: seed.frequency,
-          frameworkLinks: { create: seed.frameworks.map((f) => ({ frameworkId: f.id })) },
+          frameworkControlLinks: {
+            create: seed.frameworkControlKeys.map((key) => ({ frameworkControlId: frameworkControls[key].id })),
+          },
         },
       });
     }

@@ -7,7 +7,7 @@ import { api } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
 import { Modal } from '@/components/Modal';
 import { ControlFields, ControlFieldValues, emptyControlFieldValues } from '@/components/controls/ControlFields';
-import { Category, Control, Framework, OrgUnit } from '@/lib/types';
+import { Category, Control, FrameworkControl, OrgUnit } from '@/lib/types';
 import { CONTROL_EFFECTIVENESS_CLASS, CONTROL_EFFECTIVENESS_LABEL, CONTROL_FREQUENCY_LABEL, CONTROL_TYPE_LABEL } from '@/lib/status-labels';
 
 const TYPES = ['PREVENTIVE', 'DETECTIVE', 'CORRECTIVE', 'COMPENSATING'] as const;
@@ -29,7 +29,7 @@ export default function ControlsPage() {
 
   const { data: orgUnits } = useApiGet<OrgUnit[]>('/org-units');
   const { data: categories } = useApiGet<Category[]>('/categories');
-  const { data: frameworks } = useApiGet<Framework[]>('/frameworks');
+  const { data: frameworkControls } = useApiGet<FrameworkControl[]>('/framework-controls');
 
   const query = new URLSearchParams();
   if (orgUnitId) query.set('orgUnitId', orgUnitId);
@@ -157,7 +157,7 @@ export default function ControlsPage() {
                     <th>Domain</th>
                     <th>Type</th>
                     <th>Frequency</th>
-                    <th>Frameworks</th>
+                    <th>Framework Clauses</th>
                     <th>Effectiveness</th>
                     <th>Last Tested</th>
                   </tr>
@@ -177,14 +177,14 @@ export default function ControlsPage() {
                       <td>{CONTROL_TYPE_LABEL[c.type]}</td>
                       <td>{CONTROL_FREQUENCY_LABEL[c.frequency]}</td>
                       <td>
-                        {c.frameworks.length === 0 ? (
+                        {c.frameworkControls.length === 0 ? (
                           <span className="helper-note" style={{ margin: 0 }}>
                             —
                           </span>
                         ) : (
-                          c.frameworks.map((f) => (
-                            <span key={f.id} className="tag" style={{ marginRight: 4 }}>
-                              {f.name}
+                          c.frameworkControls.map((fc) => (
+                            <span key={fc.id} className="tag" style={{ marginRight: 4 }}>
+                              {fc.framework.name} {fc.code}
                             </span>
                           ))
                         )}
@@ -220,7 +220,7 @@ export default function ControlsPage() {
           }
         >
           <form id="new-control-form" onSubmit={submitCreate}>
-            <ControlFields values={values} onChange={onChange} categories={categories} orgUnits={orgUnits} frameworks={frameworks} />
+            <ControlFields values={values} onChange={onChange} categories={categories} orgUnits={orgUnits} frameworkControls={frameworkControls} />
             {error && (
               <p className="helper-note" style={{ color: 'var(--dgs-red)' }}>
                 {error}

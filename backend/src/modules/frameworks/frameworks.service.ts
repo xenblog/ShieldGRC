@@ -14,11 +14,19 @@ export class FrameworksService {
     private readonly audit: AuditService,
   ) {}
 
-  private async withCoverage(framework: {
-    id: string;
-    controlLinks: { control: { effectiveness: ControlEffectiveness } }[];
-  }) {
-    const controls = framework.controlLinks.map((l) => l.control);
+  /** Every Control mapped to any clause of this Framework, deduped (a Control mapped to 2 clauses counts once). */
+  private controlsFor(framework: { controls: { controlLinks: { control: { id: string; effectiveness: ControlEffectiveness } }[] }[] }) {
+    const byId = new Map<string, { id: string; effectiveness: ControlEffectiveness }>();
+    for (const clause of framework.controls) {
+      for (const link of clause.controlLinks) {
+        byId.set(link.control.id, link.control);
+      }
+    }
+    return Array.from(byId.values());
+  }
+
+  private withCoverage(framework: { controls: { controlLinks: { control: { id: string; effectiveness: ControlEffectiveness } }[] }[] }) {
+    const controls = this.controlsFor(framework);
     const effectiveCount = controls.filter((c) => c.effectiveness === ControlEffectiveness.EFFECTIVE).length;
     const coveragePercent = controls.length > 0 ? Math.round((effectiveCount / controls.length) * 100) : 0;
     return { coveragePercent, mappedControlCount: controls.length };
@@ -31,18 +39,17 @@ export class FrameworksService {
       include: {
         orgUnit: true,
         owner: { select: { id: true, name: true, email: true } },
-        controlLinks: { include: { control: { select: { effectiveness: true } } } },
+        controls: { include: { controlLinks: { include: { control: { select: { id: true, effectiveness: true } } } } } },
       },
       orderBy: { name: 'asc' },
     });
 
-    return Promise.all(
-      frameworks.map(async (f) => ({
-        ...f,
-        ...(await this.withCoverage(f)),
-        controlLinks: undefined,
-      })),
-    );
+    return frameworks.map((f) => ({
+      ...f,
+      ...this.withCoverage(f),
+      clauseCount: f.controls.length,
+      controls: undefined,
+    }));
   }
 
   async findOne(id: string, user: AuthenticatedUser) {
@@ -51,14 +58,11 @@ export class FrameworksService {
       include: {
         orgUnit: true,
         owner: { select: { id: true, name: true, email: true } },
-        controlLinks: {
+        controls: {
+          orderBy: { code: 'asc' },
           include: {
-            control: {
-              include: {
-                domainCategory: true,
-                orgUnit: true,
-                frameworkLinks: { include: { framework: true } },
-              },
+            controlLinks: {
+              include: { control: { select: { id: true, code: true, name: true, effectiveness: true } } },
             },
           },
         },
@@ -67,18 +71,21 @@ export class FrameworksService {
     if (!framework) throw new NotFoundException('Framework not found');
     this.scope.assertCanReadOrgUnit(user, framework.orgUnitId);
 
-    const coverage = await this.withCoverage(framework);
+    const coverage = this.withCoverage(framework);
     const auditHistory = await this.audit.findForEntity('Framework', id);
 
     return {
       ...framework,
       ...coverage,
-      mappedControls: framework.controlLinks.map((l) => ({
-        ...l.control,
-        frameworks: l.control.frameworkLinks.map((fl) => fl.framework),
-        frameworkLinks: undefined,
+      clauses: framework.controls.map((clause) => ({
+        id: clause.id,
+        code: clause.code,
+        title: clause.title,
+        description: clause.description,
+        mappedControls: clause.controlLinks.map((l) => l.control),
       })),
-      controlLinks: undefined,
+      mappedControls: this.controlsFor(framework),
+      controls: undefined,
       auditHistory,
     };
   }

@@ -26,6 +26,7 @@ import { MethodologyModule } from './modules/methodology/methodology.module';
 import { ControlsModule } from './modules/controls/controls.module';
 import { ControlTestsModule } from './modules/control-tests/control-tests.module';
 import { FrameworksModule } from './modules/frameworks/frameworks.module';
+import { FrameworkControlsModule } from './modules/framework-controls/framework-controls.module';
 import { DashboardsModule } from './modules/dashboards/dashboards.module';
 import { BusinessProcessesModule } from './modules/business-processes/business-processes.module';
 
@@ -58,6 +59,7 @@ import { BusinessProcessesModule } from './modules/business-processes/business-p
     ControlsModule,
     ControlTestsModule,
     FrameworksModule,
+    FrameworkControlsModule,
     DashboardsModule,
     BusinessProcessesModule,
   ],

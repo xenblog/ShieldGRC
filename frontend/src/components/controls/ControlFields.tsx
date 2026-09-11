@@ -1,4 +1,4 @@
-import { Category, ControlFrequency, ControlType, Framework, NistCsfFunction, OrgUnit } from '@/lib/types';
+import { Category, ControlFrequency, ControlType, FrameworkControl, NistCsfFunction, OrgUnit } from '@/lib/types';
 import { CONTROL_FREQUENCY_LABEL, CONTROL_TYPE_LABEL } from '@/lib/status-labels';
 
 const TYPES: ControlType[] = ['PREVENTIVE', 'DETECTIVE', 'CORRECTIVE', 'COMPENSATING'];
@@ -13,7 +13,7 @@ export interface ControlFieldValues {
   type: ControlType;
   frequency: ControlFrequency;
   nistCsfFunction: NistCsfFunction | '';
-  frameworkIds: string[];
+  frameworkControlIds: string[];
 }
 
 export function emptyControlFieldValues(): ControlFieldValues {
@@ -25,7 +25,7 @@ export function emptyControlFieldValues(): ControlFieldValues {
     type: 'PREVENTIVE',
     frequency: 'ANNUAL',
     nistCsfFunction: '',
-    frameworkIds: [],
+    frameworkControlIds: [],
   };
 }
 
@@ -34,18 +34,31 @@ export function ControlFields({
   onChange,
   categories,
   orgUnits,
-  frameworks,
+  frameworkControls,
   disabled,
 }: {
   values: ControlFieldValues;
   onChange: <K extends keyof ControlFieldValues>(key: K, value: ControlFieldValues[K]) => void;
   categories: Category[] | null;
   orgUnits: OrgUnit[] | null;
-  frameworks: Framework[] | null;
+  frameworkControls: FrameworkControl[] | null;
   disabled?: boolean;
 }) {
-  function toggleFramework(id: string) {
-    onChange('frameworkIds', values.frameworkIds.includes(id) ? values.frameworkIds.filter((f) => f !== id) : [...values.frameworkIds, id]);
+  function toggleFrameworkControl(id: string) {
+    onChange(
+      'frameworkControlIds',
+      values.frameworkControlIds.includes(id) ? values.frameworkControlIds.filter((f) => f !== id) : [...values.frameworkControlIds, id],
+    );
+  }
+
+  const clausesByFramework: { framework: { id: string; name: string }; clauses: FrameworkControl[] }[] = [];
+  for (const fc of frameworkControls ?? []) {
+    let group = clausesByFramework.find((g) => g.framework.id === fc.framework.id);
+    if (!group) {
+      group = { framework: fc.framework, clauses: [] };
+      clausesByFramework.push(group);
+    }
+    group.clauses.push(fc);
   }
 
   return (
@@ -129,27 +142,36 @@ export function ControlFields({
       </div>
 
       <div className="field" style={{ marginBottom: 0 }}>
-        <label className="field-label">Frameworks</label>
-        {frameworks && frameworks.length > 0 ? (
-          <div className="modal-list" style={{ maxHeight: 160 }}>
-            {frameworks.map((f) => {
-              const checked = values.frameworkIds.includes(f.id);
-              return (
-                <div key={f.id} className="modal-list-row" onClick={() => !disabled && toggleFramework(f.id)}>
-                  <div className={`modal-checkbox${checked ? ' checked' : ''}`}>
-                    {checked && (
-                      <svg viewBox="0 0 24 24" width={10} height={10} fill="none" stroke="#FFFFFF" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M20 6L9 17l-5-5" />
-                      </svg>
-                    )}
-                  </div>
-                  <span className="modal-row-title">{f.name}</span>
+        <label className="field-label">Framework Clauses (e.g. ISO 27001 A.5.1)</label>
+        {clausesByFramework.length > 0 ? (
+          <div className="modal-list" style={{ maxHeight: 220 }}>
+            {clausesByFramework.map((group) => (
+              <div key={group.framework.id}>
+                <div className="helper-note" style={{ margin: '6px 0 2px 8px', fontFamily: 'var(--font-chrome)' }}>
+                  {group.framework.name}
                 </div>
-              );
-            })}
+                {group.clauses.map((fc) => {
+                  const checked = values.frameworkControlIds.includes(fc.id);
+                  return (
+                    <div key={fc.id} className="modal-list-row" onClick={() => !disabled && toggleFrameworkControl(fc.id)}>
+                      <div className={`modal-checkbox${checked ? ' checked' : ''}`}>
+                        {checked && (
+                          <svg viewBox="0 0 24 24" width={10} height={10} fill="none" stroke="#FFFFFF" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M20 6L9 17l-5-5" />
+                          </svg>
+                        )}
+                      </div>
+                      <span className="modal-row-title">
+                        {fc.code} — {fc.title}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
           </div>
         ) : (
-          <p className="helper-note">No frameworks defined yet.</p>
+          <p className="helper-note">No framework clauses defined yet.</p>
         )}
       </div>
     </>

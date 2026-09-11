@@ -34,8 +34,13 @@ export class ControlsService {
     return {
       domainCategory: true,
       orgUnit: true,
-      frameworkLinks: { include: { framework: true } },
+      frameworkControlLinks: { include: { frameworkControl: { include: { framework: { select: { id: true, name: true } } } } } },
     } satisfies Prisma.ControlInclude;
+  }
+
+  private withFrameworkControls<T extends { frameworkControlLinks: { frameworkControl: unknown }[] }>(control: T) {
+    const { frameworkControlLinks, ...rest } = control;
+    return { ...rest, frameworkControls: frameworkControlLinks.map((l) => l.frameworkControl) };
   }
 
   async findAll(user: AuthenticatedUser, query: QueryControlsDto) {
@@ -44,7 +49,7 @@ export class ControlsService {
     if (query.type) where.type = query.type;
     if (query.effectiveness) where.effectiveness = query.effectiveness;
     if (query.frameworkId) {
-      where.frameworkLinks = { some: { frameworkId: query.frameworkId } };
+      where.frameworkControlLinks = { some: { frameworkControl: { frameworkId: query.frameworkId } } };
     }
 
     const controls = await this.prisma.control.findMany({
@@ -52,7 +57,7 @@ export class ControlsService {
       include: this.commonInclude(),
       orderBy: { code: 'asc' },
     });
-    return controls.map((c) => ({ ...c, frameworks: c.frameworkLinks.map((l) => l.framework) }));
+    return controls.map((c) => this.withFrameworkControls(c));
   }
 
   async findOne(id: string, user: AuthenticatedUser) {
@@ -78,8 +83,7 @@ export class ControlsService {
     const auditHistory = await this.audit.findForEntity('Control', id);
 
     return {
-      ...control,
-      frameworks: control.frameworkLinks.map((l) => l.framework),
+      ...this.withFrameworkControls(control),
       linkedRisks: control.riskLinks.map((l) => ({ ...l.risk, code: riskDisplayCode(l.risk.sequenceNumber) })),
       auditHistory,
     };
@@ -98,8 +102,8 @@ export class ControlsService {
           orgUnitId: dto.orgUnitId,
           type: dto.type,
           frequency: dto.frequency,
-          frameworkLinks: dto.frameworkIds
-            ? { create: dto.frameworkIds.map((frameworkId) => ({ frameworkId })) }
+          frameworkControlLinks: dto.frameworkControlIds
+            ? { create: dto.frameworkControlIds.map((frameworkControlId) => ({ frameworkControlId })) }
             : undefined,
         },
       });
@@ -125,8 +129,8 @@ export class ControlsService {
     }
 
     await this.prisma.$transaction(async (tx) => {
-      if (dto.frameworkIds) {
-        await tx.controlFramework.deleteMany({ where: { controlId: id } });
+      if (dto.frameworkControlIds) {
+        await tx.controlFrameworkControl.deleteMany({ where: { controlId: id } });
       }
       const updated = await tx.control.update({
         where: { id },
@@ -138,8 +142,8 @@ export class ControlsService {
           orgUnitId: dto.orgUnitId,
           type: dto.type,
           frequency: dto.frequency,
-          frameworkLinks: dto.frameworkIds
-            ? { create: dto.frameworkIds.map((frameworkId) => ({ frameworkId })) }
+          frameworkControlLinks: dto.frameworkControlIds
+            ? { create: dto.frameworkControlIds.map((frameworkControlId) => ({ frameworkControlId })) }
             : undefined,
         },
       });
