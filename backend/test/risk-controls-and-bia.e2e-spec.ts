@@ -127,10 +127,18 @@ describe('Risk-Control linking, propagation, and BIA Register (e2e)', () => {
         criticalityTier: 'HIGH',
         rtoMinutes: 120,
         rpoMinutes: 30,
+        confidentialityScore: 2,
+        integrityScore: 3,
+        availabilityScore: 1,
       })
       .expect(201);
     expect(process.body.code).toMatch(/^BP-\d{3}$/);
     expect(process.body.linkedRisks).toHaveLength(0);
+    expect(process.body.confidentialityScore).toBe(2);
+    expect(process.body.integrityScore).toBe(3);
+    expect(process.body.availabilityScore).toBe(1);
+    expect(process.body.dependsOn).toHaveLength(0);
+    expect(process.body.dependents).toHaveLength(0);
 
     const linked = await request(app.getHttpServer())
       .put(`/api/business-processes/${process.body.id}/risks`)
@@ -149,5 +157,41 @@ describe('Risk-Control linking, propagation, and BIA Register (e2e)', () => {
 
     await request(app.getHttpServer()).delete(`/api/business-processes/${process.body.id}`).set(...authHeader(token)).expect(200);
     await request(app.getHttpServer()).get(`/api/business-processes/${process.body.id}`).set(...authHeader(token)).expect(404);
+  });
+
+  it('links a Business Process dependency in both directions, and rejects a self-dependency', async () => {
+    const upstream = await request(app.getHttpServer())
+      .post('/api/business-processes')
+      .set(...authHeader(token))
+      .send({ name: 'e2e: warehousing', orgUnitId, ownerId: userId, criticalityTier: 'CRITICAL' })
+      .expect(201);
+    const downstream = await request(app.getHttpServer())
+      .post('/api/business-processes')
+      .set(...authHeader(token))
+      .send({ name: 'e2e: cold transport', orgUnitId, ownerId: userId, criticalityTier: 'CRITICAL' })
+      .expect(201);
+
+    const linked = await request(app.getHttpServer())
+      .put(`/api/business-processes/${downstream.body.id}/dependencies`)
+      .set(...authHeader(token))
+      .send({ dependsOnIds: [upstream.body.id] })
+      .expect(200);
+    expect(linked.body.dependsOn).toHaveLength(1);
+    expect(linked.body.dependsOn[0].id).toBe(upstream.body.id);
+    expect(linked.body.dependents).toHaveLength(0);
+
+    const upstreamAfter = await request(app.getHttpServer())
+      .get(`/api/business-processes/${upstream.body.id}`)
+      .set(...authHeader(token))
+      .expect(200);
+    expect(upstreamAfter.body.dependents).toHaveLength(1);
+    expect(upstreamAfter.body.dependents[0].id).toBe(downstream.body.id);
+    expect(upstreamAfter.body.dependsOn).toHaveLength(0);
+
+    await request(app.getHttpServer())
+      .put(`/api/business-processes/${downstream.body.id}/dependencies`)
+      .set(...authHeader(token))
+      .send({ dependsOnIds: [downstream.body.id] })
+      .expect(400);
   });
 });

@@ -12,6 +12,9 @@ function toPayload(values: BusinessProcessFieldValues) {
     ...values,
     rtoMinutes: values.rtoMinutes === '' ? undefined : values.rtoMinutes,
     rpoMinutes: values.rpoMinutes === '' ? undefined : values.rpoMinutes,
+    confidentialityScore: values.confidentialityScore === '' ? undefined : values.confidentialityScore,
+    integrityScore: values.integrityScore === '' ? undefined : values.integrityScore,
+    availabilityScore: values.availabilityScore === '' ? undefined : values.availabilityScore,
   };
 }
 

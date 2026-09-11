@@ -8,8 +8,8 @@ import { api } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
 import { BandBadge } from '@/components/BandBadge';
 import { Modal } from '@/components/Modal';
-import { BusinessProcessFields, BusinessProcessFieldValues } from '@/components/bia/BusinessProcessFields';
-import { BusinessProcessDetail, OrgUnit, PaginatedRisks, UserSummary } from '@/lib/types';
+import { BusinessProcessFields, BusinessProcessFieldValues, CIA_SCALE_LABELS } from '@/components/bia/BusinessProcessFields';
+import { BusinessProcessDetail, OrgUnit, PaginatedBusinessProcesses, PaginatedRisks, UserSummary } from '@/lib/types';
 import { CRITICALITY_TIER_BADGE_CLASS, CRITICALITY_TIER_LABEL, RISK_STATUS_LABEL } from '@/lib/status-labels';
 
 function toFieldValues(process: BusinessProcessDetail): BusinessProcessFieldValues {
@@ -21,6 +21,9 @@ function toFieldValues(process: BusinessProcessDetail): BusinessProcessFieldValu
     criticalityTier: process.criticalityTier,
     rtoMinutes: process.rtoMinutes ?? '',
     rpoMinutes: process.rpoMinutes ?? '',
+    confidentialityScore: process.confidentialityScore ?? '',
+    integrityScore: process.integrityScore ?? '',
+    availabilityScore: process.availabilityScore ?? '',
   };
 }
 
@@ -29,6 +32,9 @@ function toPayload(values: BusinessProcessFieldValues) {
     ...values,
     rtoMinutes: values.rtoMinutes === '' ? undefined : values.rtoMinutes,
     rpoMinutes: values.rpoMinutes === '' ? undefined : values.rpoMinutes,
+    confidentialityScore: values.confidentialityScore === '' ? undefined : values.confidentialityScore,
+    integrityScore: values.integrityScore === '' ? undefined : values.integrityScore,
+    availabilityScore: values.availabilityScore === '' ? undefined : values.availabilityScore,
   };
 }
 
@@ -43,6 +49,8 @@ export default function BusinessProcessDetailPage() {
   const { data: users } = useApiGet<UserSummary[]>('/users/assignable');
   const { data: allRisksPage } = useApiGet<PaginatedRisks>('/risks?pageSize=0');
   const allRisks = allRisksPage?.items ?? null;
+  const { data: allProcessesPage } = useApiGet<PaginatedBusinessProcesses>('/business-processes?pageSize=0');
+  const allProcesses = (allProcessesPage?.items ?? null)?.filter((p) => p.id !== params.id) ?? null;
 
   const [values, setValues] = useState<BusinessProcessFieldValues | null>(null);
   const [saving, setSaving] = useState(false);
@@ -52,6 +60,10 @@ export default function BusinessProcessDetailPage() {
   const [linkingOpen, setLinkingOpen] = useState(false);
   const [linkSearch, setLinkSearch] = useState('');
   const [selectedRiskIds, setSelectedRiskIds] = useState<string[]>([]);
+
+  const [dependencyLinkingOpen, setDependencyLinkingOpen] = useState(false);
+  const [dependencySearch, setDependencySearch] = useState('');
+  const [selectedDependsOnIds, setSelectedDependsOnIds] = useState<string[]>([]);
 
   const current = values ?? (process ? toFieldValues(process) : null);
 
@@ -98,6 +110,27 @@ export default function BusinessProcessDetailPage() {
     const updated = await api.put<BusinessProcessDetail>(`/business-processes/${params.id}/risks`, { riskIds: selectedRiskIds });
     setData(updated);
     setLinkingOpen(false);
+  }
+
+  function openDependencyLinkModal() {
+    setSelectedDependsOnIds(process!.dependsOn.map((p) => p.id));
+    setDependencySearch('');
+    setDependencyLinkingOpen(true);
+  }
+
+  async function saveDependencyLinks() {
+    const updated = await api.put<BusinessProcessDetail>(`/business-processes/${params.id}/dependencies`, {
+      dependsOnIds: selectedDependsOnIds,
+    });
+    setData(updated);
+    setDependencyLinkingOpen(false);
+  }
+
+  async function unlinkDependency(dependsOnId: string) {
+    const updated = await api.put<BusinessProcessDetail>(`/business-processes/${params.id}/dependencies`, {
+      dependsOnIds: process!.dependsOn.filter((p) => p.id !== dependsOnId).map((p) => p.id),
+    });
+    setData(updated);
   }
 
   async function unlinkRisk(riskId: string) {
@@ -196,6 +229,77 @@ export default function BusinessProcessDetailPage() {
 
           <div className="card">
             <div className="card-header">
+              <div className="section-title">CIA Rating</div>
+            </div>
+            <div className="score-tile-row" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
+              <div className="score-tile">
+                <div className="score-tile-label">Confidentiality</div>
+                <div className="score-tile-value">{process.confidentialityScore ?? '—'}</div>
+                <div className="score-tile-sub">{process.confidentialityScore ? CIA_SCALE_LABELS[process.confidentialityScore] : 'Not set'}</div>
+              </div>
+              <div className="score-tile">
+                <div className="score-tile-label">Integrity</div>
+                <div className="score-tile-value">{process.integrityScore ?? '—'}</div>
+                <div className="score-tile-sub">{process.integrityScore ? CIA_SCALE_LABELS[process.integrityScore] : 'Not set'}</div>
+              </div>
+              <div className="score-tile">
+                <div className="score-tile-label">Availability</div>
+                <div className="score-tile-value">{process.availabilityScore ?? '—'}</div>
+                <div className="score-tile-sub">{process.availabilityScore ? CIA_SCALE_LABELS[process.availabilityScore] : 'Not set'}</div>
+              </div>
+            </div>
+            <div className="helper-note" style={{ margin: 0 }}>Edit under Business Process Details on the left.</div>
+          </div>
+
+          <div className="card">
+            <div className="card-header">
+              <div className="section-title">Dependencies</div>
+              {canEdit && (
+                <button type="button" onClick={openDependencyLinkModal} className="btn-secondary">
+                  + Link Dependency
+                </button>
+              )}
+            </div>
+            {process.dependsOn.length === 0 ? (
+              <p className="helper-note">Doesn&apos;t depend on any other business process yet.</p>
+            ) : (
+              process.dependsOn.map((p) => (
+                <div key={p.id} className="linked-item">
+                  <div>
+                    <Link href={`/bia-register/${p.id}`} className="risk-title">
+                      {p.code} — {p.name}
+                    </Link>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span className={`badge ${CRITICALITY_TIER_BADGE_CLASS[p.criticalityTier]}`}>{CRITICALITY_TIER_LABEL[p.criticalityTier]}</span>
+                    {canEdit && (
+                      <button type="button" className="link-btn" onClick={() => unlinkDependency(p.id)}>
+                        Unlink
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+            {process.dependents.length > 0 && (
+              <>
+                <div className="helper-note" style={{ marginTop: 14, marginBottom: 6 }}>
+                  Depended on by (set from each process&apos;s own page):
+                </div>
+                {process.dependents.map((p) => (
+                  <div key={p.id} className="linked-item">
+                    <Link href={`/bia-register/${p.id}`} className="risk-title">
+                      {p.code} — {p.name}
+                    </Link>
+                    <span className={`badge ${CRITICALITY_TIER_BADGE_CLASS[p.criticalityTier]}`}>{CRITICALITY_TIER_LABEL[p.criticalityTier]}</span>
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+
+          <div className="card">
+            <div className="card-header">
               <div className="section-title">Threatening Risks</div>
               {canEdit && (
                 <button type="button" onClick={openLinkModal} className="btn-secondary">
@@ -282,6 +386,67 @@ export default function BusinessProcessDetailPage() {
                   </div>
                 );
               })}
+          </div>
+        </Modal>
+      )}
+
+      {dependencyLinkingOpen && (
+        <Modal
+          title="Link Dependency"
+          subtitle="Choose one or more other Business Processes that this one depends on to run."
+          onClose={() => setDependencyLinkingOpen(false)}
+          footer={
+            <>
+              <button type="button" className="btn-secondary" onClick={() => setDependencyLinkingOpen(false)}>
+                Cancel
+              </button>
+              <button type="button" className="btn-primary" onClick={saveDependencyLinks}>
+                Link Selected ({selectedDependsOnIds.length})
+              </button>
+            </>
+          }
+        >
+          <div className="modal-search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="10.5" cy="10.5" r="6.5" />
+              <line x1="19" y1="19" x2="15.3" y2="15.3" />
+            </svg>
+            <input
+              placeholder="Search by process ID or name…"
+              value={dependencySearch}
+              onChange={(e) => setDependencySearch(e.target.value)}
+              autoFocus
+            />
+          </div>
+          <div className="modal-list">
+            {(allProcesses ?? [])
+              .filter((p) => {
+                const q = dependencySearch.trim().toLowerCase();
+                if (!q) return true;
+                return p.code.toLowerCase().includes(q) || p.name.toLowerCase().includes(q);
+              })
+              .map((p) => {
+                const checked = selectedDependsOnIds.includes(p.id);
+                return (
+                  <div
+                    key={p.id}
+                    className="modal-list-row"
+                    onClick={() => setSelectedDependsOnIds((prev) => (checked ? prev.filter((id) => id !== p.id) : [...prev, p.id]))}
+                  >
+                    <div className={`modal-checkbox${checked ? ' checked' : ''}`}>
+                      {checked && (
+                        <svg viewBox="0 0 24 24" width={10} height={10} fill="none" stroke="#FFFFFF" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M20 6L9 17l-5-5" />
+                        </svg>
+                      )}
+                    </div>
+                    <span className="modal-row-id">{p.code}</span>
+                    <span className="modal-row-title">{p.name}</span>
+                    <span className={`badge ${CRITICALITY_TIER_BADGE_CLASS[p.criticalityTier]}`}>{CRITICALITY_TIER_LABEL[p.criticalityTier]}</span>
+                  </div>
+                );
+              })}
+            {allProcesses && allProcesses.length === 0 && <div className="modal-empty">No other business processes yet.</div>}
           </div>
         </Modal>
       )}

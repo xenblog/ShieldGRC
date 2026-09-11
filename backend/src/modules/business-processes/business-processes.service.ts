@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { AuditAction, Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { OrgUnitScopeService } from '../../common/org-unit-scope/org-unit-scope.service';
@@ -9,6 +9,7 @@ import { CreateBusinessProcessDto } from './dto/create-business-process.dto';
 import { UpdateBusinessProcessDto } from './dto/update-business-process.dto';
 import { QueryBusinessProcessesDto, BusinessProcessSortField } from './dto/query-business-processes.dto';
 import { LinkRisksDto } from './dto/link-risks.dto';
+import { LinkDependenciesDto } from './dto/link-dependencies.dto';
 
 @Injectable()
 export class BusinessProcessesService {
@@ -68,6 +69,21 @@ export class BusinessProcessesService {
     return { items: processes.map((p) => this.withComputed(p)), total };
   }
 
+  /** Select shape for a Business Process embedded as a dependency reference (not its full detail). */
+  private dependencySelect() {
+    return {
+      id: true,
+      sequenceNumber: true,
+      name: true,
+      criticalityTier: true,
+    } satisfies Prisma.BusinessProcessSelect;
+  }
+
+  private withDependencyComputed<T extends { sequenceNumber: number }>(process: T) {
+    const { sequenceNumber, ...rest } = process;
+    return { ...rest, code: businessProcessDisplayCode(sequenceNumber) };
+  }
+
   async findOne(id: string, user: AuthenticatedUser) {
     const process = await this.prisma.businessProcess.findUnique({
       where: { id },
@@ -76,6 +92,8 @@ export class BusinessProcessesService {
         riskLinks: {
           include: { risk: { include: { category: true, owner: { select: { id: true, name: true } } } } },
         },
+        dependsOnLinks: { include: { dependsOn: { select: this.dependencySelect() } } },
+        dependentLinks: { include: { businessProcess: { select: this.dependencySelect() } } },
       },
     });
     if (!process) throw new NotFoundException('Business process not found');
@@ -86,6 +104,8 @@ export class BusinessProcessesService {
     return {
       ...this.withComputed(process),
       linkedRisks: process.riskLinks.map((l) => ({ ...l.risk, code: riskDisplayCode(l.risk.sequenceNumber) })),
+      dependsOn: process.dependsOnLinks.map((l) => this.withDependencyComputed(l.dependsOn)),
+      dependents: process.dependentLinks.map((l) => this.withDependencyComputed(l.businessProcess)),
       auditHistory,
     };
   }
@@ -103,6 +123,9 @@ export class BusinessProcessesService {
           criticalityTier: dto.criticalityTier,
           rtoMinutes: dto.rtoMinutes,
           rpoMinutes: dto.rpoMinutes,
+          confidentialityScore: dto.confidentialityScore,
+          integrityScore: dto.integrityScore,
+          availabilityScore: dto.availabilityScore,
         },
       });
       await this.audit.record(tx, {
@@ -137,6 +160,9 @@ export class BusinessProcessesService {
           criticalityTier: dto.criticalityTier,
           rtoMinutes: dto.rtoMinutes,
           rpoMinutes: dto.rpoMinutes,
+          confidentialityScore: dto.confidentialityScore,
+          integrityScore: dto.integrityScore,
+          availabilityScore: dto.availabilityScore,
         },
       });
       await this.audit.record(tx, {
@@ -172,6 +198,44 @@ export class BusinessProcessesService {
         actorId: user.id,
         before: { linkedRiskIds: existing.riskLinks.map((l) => l.riskId) },
         after: { linkedRiskIds: dto.riskIds },
+      });
+    });
+
+    return this.findOne(id, user);
+  }
+
+  /**
+   * Replaces the full set of Business Processes this one depends on (same
+   * replace-all-links semantics as updateLinkedRisks). The reverse
+   * direction (dependents) is purely derived - it is never written to
+   * directly, only ever set by the dependent process's own PUT.
+   */
+  async updateDependencies(id: string, dto: LinkDependenciesDto, user: AuthenticatedUser) {
+    if (dto.dependsOnIds.includes(id)) {
+      throw new BadRequestException('A business process cannot depend on itself');
+    }
+
+    const existing = await this.prisma.businessProcess.findUnique({
+      where: { id },
+      include: { dependsOnLinks: true },
+    });
+    if (!existing) throw new NotFoundException('Business process not found');
+    this.scope.assertCanWriteOrgUnit(user, existing.orgUnitId);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.businessProcessDependency.deleteMany({ where: { businessProcessId: id } });
+      if (dto.dependsOnIds.length > 0) {
+        await tx.businessProcessDependency.createMany({
+          data: dto.dependsOnIds.map((dependsOnId) => ({ businessProcessId: id, dependsOnId })),
+        });
+      }
+      await this.audit.record(tx, {
+        entityType: 'BusinessProcess',
+        entityId: id,
+        action: AuditAction.UPDATE,
+        actorId: user.id,
+        before: { dependsOnIds: existing.dependsOnLinks.map((l) => l.dependsOnId) },
+        after: { dependsOnIds: dto.dependsOnIds },
       });
     });
 

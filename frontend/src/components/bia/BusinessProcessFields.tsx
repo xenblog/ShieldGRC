@@ -2,6 +2,7 @@ import { BusinessProcessCriticalityTier, OrgUnit, UserSummary } from '@/lib/type
 import { CRITICALITY_TIER_LABEL } from '@/lib/status-labels';
 
 const TIERS: BusinessProcessCriticalityTier[] = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'];
+export const CIA_SCALE_LABELS: Record<number, string> = { 1: 'Low', 2: 'Medium', 3: 'High' };
 
 export interface BusinessProcessFieldValues {
   name: string;
@@ -11,6 +12,9 @@ export interface BusinessProcessFieldValues {
   criticalityTier: BusinessProcessCriticalityTier;
   rtoMinutes: number | '';
   rpoMinutes: number | '';
+  confidentialityScore: number | '';
+  integrityScore: number | '';
+  availabilityScore: number | '';
 }
 
 export function emptyBusinessProcessFieldValues(): BusinessProcessFieldValues {
@@ -22,6 +26,9 @@ export function emptyBusinessProcessFieldValues(): BusinessProcessFieldValues {
     criticalityTier: 'MEDIUM',
     rtoMinutes: '',
     rpoMinutes: '',
+    confidentialityScore: '',
+    integrityScore: '',
+    availabilityScore: '',
   };
 }
 
@@ -123,6 +130,60 @@ export function BusinessProcessFields({
             disabled={disabled}
           />
           <div className="helper-note">Recovery Point Objective — maximum tolerable data loss window.</div>
+        </div>
+      </div>
+
+      <div className="field" style={{ marginTop: 16, marginBottom: 8 }}>
+        <label className="field-label">CIA Rating (1–3)</label>
+      </div>
+      <div className="field-row" style={{ gridTemplateColumns: '1fr 1fr 1fr', marginBottom: 0 }}>
+        <div className="field" style={{ marginBottom: 0 }}>
+          <label className="field-label">Confidentiality</label>
+          <select
+            className="select-input"
+            value={values.confidentialityScore}
+            onChange={(e) => onChange('confidentialityScore', e.target.value === '' ? '' : Number(e.target.value))}
+            disabled={disabled}
+          >
+            <option value="">Not set</option>
+            {[1, 2, 3].map((n) => (
+              <option key={n} value={n}>
+                {n} — {CIA_SCALE_LABELS[n]}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="field" style={{ marginBottom: 0 }}>
+          <label className="field-label">Integrity</label>
+          <select
+            className="select-input"
+            value={values.integrityScore}
+            onChange={(e) => onChange('integrityScore', e.target.value === '' ? '' : Number(e.target.value))}
+            disabled={disabled}
+          >
+            <option value="">Not set</option>
+            {[1, 2, 3].map((n) => (
+              <option key={n} value={n}>
+                {n} — {CIA_SCALE_LABELS[n]}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="field" style={{ marginBottom: 0 }}>
+          <label className="field-label">Availability</label>
+          <select
+            className="select-input"
+            value={values.availabilityScore}
+            onChange={(e) => onChange('availabilityScore', e.target.value === '' ? '' : Number(e.target.value))}
+            disabled={disabled}
+          >
+            <option value="">Not set</option>
+            {[1, 2, 3].map((n) => (
+              <option key={n} value={n}>
+                {n} — {CIA_SCALE_LABELS[n]}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
     </>

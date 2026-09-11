@@ -7,6 +7,7 @@ import { CreateBusinessProcessDto } from './dto/create-business-process.dto';
 import { UpdateBusinessProcessDto } from './dto/update-business-process.dto';
 import { QueryBusinessProcessesDto } from './dto/query-business-processes.dto';
 import { LinkRisksDto } from './dto/link-risks.dto';
+import { LinkDependenciesDto } from './dto/link-dependencies.dto';
 import { BusinessProcessesService } from './business-processes.service';
 
 @Controller('business-processes')
@@ -39,6 +40,12 @@ export class BusinessProcessesController {
   @Roles(UserRole.ADMIN, UserRole.RISK_OWNER)
   updateLinkedRisks(@Param('id') id: string, @Body() dto: LinkRisksDto, @CurrentUser() user: AuthenticatedUser) {
     return this.businessProcessesService.updateLinkedRisks(id, dto, user);
+  }
+
+  @Put(':id/dependencies')
+  @Roles(UserRole.ADMIN, UserRole.RISK_OWNER)
+  updateDependencies(@Param('id') id: string, @Body() dto: LinkDependenciesDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.businessProcessesService.updateDependencies(id, dto, user);
   }
 
   @Delete(':id')

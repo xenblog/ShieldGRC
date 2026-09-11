@@ -197,8 +197,20 @@ export interface BusinessProcess {
   criticalityTier: BusinessProcessCriticalityTier;
   rtoMinutes: number | null;
   rpoMinutes: number | null;
+  // CIA triad rating (1-3: Low/Medium/High) - independent of criticalityTier.
+  confidentialityScore: number | null;
+  integrityScore: number | null;
+  availabilityScore: number | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** Business Process as embedded within another one's dependency lists - just enough to render a chip/row. */
+export interface LinkedBusinessProcess {
+  id: string;
+  code: string;
+  name: string;
+  criticalityTier: BusinessProcessCriticalityTier;
 }
 
 export interface BusinessProcessDetail extends BusinessProcess {
@@ -212,6 +224,10 @@ export interface BusinessProcessDetail extends BusinessProcess {
     category: Category;
     owner: { id: string; name: string };
   }[];
+  // Other Business Processes this one depends on ("A needs B to run").
+  dependsOn: LinkedBusinessProcess[];
+  // Business Processes that depend on this one (read-only here - set from the dependent's own page).
+  dependents: LinkedBusinessProcess[];
   auditHistory: AuditLogEntry[];
 }
 

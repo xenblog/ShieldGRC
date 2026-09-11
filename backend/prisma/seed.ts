@@ -858,6 +858,7 @@ async function main() {
   // Business Impact Analysis (BIA) Register
   // ---------------------------------------------------------------------
   interface BusinessProcessSeed {
+    key: string;
     name: string;
     description: string;
     orgUnitId: string;
@@ -865,11 +866,19 @@ async function main() {
     criticalityTier: BusinessProcessCriticalityTier;
     rtoMinutes?: number;
     rpoMinutes?: number;
+    // CIA triad rating (1-3: Low/Medium/High) - independent of criticalityTier.
+    confidentialityScore: number;
+    integrityScore: number;
+    availabilityScore: number;
     riskKeys: string[];
+    // Other seeded processes (by key) this one depends on - linked in a
+    // second pass below, once every process has been created.
+    dependsOnKeys?: string[];
   }
 
   const businessProcessSeeds: BusinessProcessSeed[] = [
     {
+      key: 'lagerstyring',
       name: 'Lagerstyring og pluk',
       description: 'Modtagelse, lagerstyring og plukning af varer på de automatiserede lagre.',
       orgUnitId: orgLogistik.id,
@@ -877,9 +886,13 @@ async function main() {
       criticalityTier: BusinessProcessCriticalityTier.CRITICAL,
       rtoMinutes: 240,
       rpoMinutes: 60,
+      confidentialityScore: 1,
+      integrityScore: 2,
+      availabilityScore: 3,
       riskKeys: ['firmware', 'ot-it-segmentering', 'adgangskontrol-lager'],
     },
     {
+      key: 'koeletransport',
       name: 'Kølet transport til Foodservice-kunder',
       description: 'Distribution af kølede og frosne varer til Foodservice-kunder.',
       orgUnitId: orgFoodservice.id,
@@ -887,9 +900,15 @@ async function main() {
       criticalityTier: BusinessProcessCriticalityTier.CRITICAL,
       rtoMinutes: 120,
       rpoMinutes: 30,
+      confidentialityScore: 1,
+      integrityScore: 1,
+      availabilityScore: 3,
       riskKeys: ['koeletransport', 'leverandoer-beredskab'],
+      // Cold transport can't dispatch orders that haven't been picked yet.
+      dependsOnKeys: ['lagerstyring'],
     },
     {
+      key: 'kundedata',
       name: 'Kundedatabehandling',
       description: 'Behandling og opbevaring af persondata om kunder på tværs af koncernens systemer.',
       orgUnitId: orgAps.id,
@@ -897,18 +916,26 @@ async function main() {
       criticalityTier: BusinessProcessCriticalityTier.HIGH,
       rtoMinutes: 480,
       rpoMinutes: 240,
+      confidentialityScore: 3,
+      integrityScore: 2,
+      availabilityScore: 2,
       riskKeys: ['logging', 'gdpr-deling'],
     },
     {
+      key: 'besoegshaandtering',
       name: 'Besøgshåndtering på hovedkontor',
       description: 'Registrering og eskorte af eksterne besøgende på hovedkontoret.',
       orgUnitId: orgAps.id,
       ownerId: riskOwnerAps.id,
       criticalityTier: BusinessProcessCriticalityTier.LOW,
+      confidentialityScore: 1,
+      integrityScore: 1,
+      availabilityScore: 1,
       riskKeys: ['besoegsregistrering'],
     },
   ];
 
+  const businessProcesses: Record<string, Awaited<ReturnType<typeof prisma.businessProcess.create>>> = {};
   for (const seed of businessProcessSeeds) {
     const existing = await prisma.businessProcess.findFirst({ where: { name: seed.name } });
     const process =
@@ -922,13 +949,37 @@ async function main() {
           criticalityTier: seed.criticalityTier,
           rtoMinutes: seed.rtoMinutes,
           rpoMinutes: seed.rpoMinutes,
+          confidentialityScore: seed.confidentialityScore,
+          integrityScore: seed.integrityScore,
+          availabilityScore: seed.availabilityScore,
         },
       }));
+    businessProcesses[seed.key] = process;
     for (const riskKey of seed.riskKeys) {
       await prisma.businessProcessRisk.upsert({
         where: { businessProcessId_riskId: { businessProcessId: process.id, riskId: risks[riskKey].id } },
         update: {},
         create: { businessProcessId: process.id, riskId: risks[riskKey].id },
+      });
+    }
+  }
+
+  // Second pass: link Business Process dependencies (dependsOnKeys) now
+  // that every process has been created.
+  for (const seed of businessProcessSeeds) {
+    for (const dependsOnKey of seed.dependsOnKeys ?? []) {
+      await prisma.businessProcessDependency.upsert({
+        where: {
+          businessProcessId_dependsOnId: {
+            businessProcessId: businessProcesses[seed.key].id,
+            dependsOnId: businessProcesses[dependsOnKey].id,
+          },
+        },
+        update: {},
+        create: {
+          businessProcessId: businessProcesses[seed.key].id,
+          dependsOnId: businessProcesses[dependsOnKey].id,
+        },
       });
     }
   }

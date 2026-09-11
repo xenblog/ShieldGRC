@@ -498,15 +498,42 @@ model BusinessProcess {
   rtoMinutes      Int?
   rpoMinutes      Int?
 
+  // CIA triad rating (1-3: Low/Medium/High) - independent of criticalityTier,
+  // which stays a separate, manually-set overall tier.
+  confidentialityScore Int?
+  integrityScore       Int?
+  availabilityScore    Int?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  riskLinks BusinessProcessRisk[]
+  riskLinks      BusinessProcessRisk[]
+  // Other Business Processes this one depends on ("A needs B to run").
+  dependsOnLinks BusinessProcessDependency[] @relation("BusinessProcessDependent")
+  // Business Processes that depend on this one (the reverse direction).
+  dependentLinks BusinessProcessDependency[] @relation("BusinessProcessDependsOn")
 
   @@index([orgUnitId])
   @@index([ownerId])
   @@index([criticalityTier])
   @@map("business_processes")
+}
+
+// Self-referential dependency edge: businessProcessId depends on dependsOnId
+// (e.g. "Cold transport" depends on "Warehousing & picking"). Plain typed
+// join table, same pattern as BusinessProcessRisk - no cycle detection, this
+// is a reference graph, not something scored or evaluated recursively.
+model BusinessProcessDependency {
+  businessProcessId String
+  dependsOnId       String
+  createdAt         DateTime @default(now())
+
+  businessProcess BusinessProcess @relation("BusinessProcessDependent", fields: [businessProcessId], references: [id], onDelete: Cascade)
+  dependsOn       BusinessProcess @relation("BusinessProcessDependsOn", fields: [dependsOnId], references: [id], onDelete: Cascade)
+
+  @@id([businessProcessId, dependsOnId])
+  @@index([dependsOnId])
+  @@map("business_process_dependencies")
 }
 
 // Links a Business Process to the Risk(s) that threaten it. Plain typed join
